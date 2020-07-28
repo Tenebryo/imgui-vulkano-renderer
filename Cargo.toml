@@ -1,10 +1,13 @@
 [package]
 name = "imgui-vulkano-renderer"
 version = "0.1.0"
-authors = ["Sam Blazes <blazes.sam@gmail.com>"]
+authors = ["Sam Blazes"]
 edition = "2018"
 
 categories = ["gui", "rendering"]
+repository = "https://github.com/Tenebryo/imgui-vulkano-renderer"
+readme = "README.md"
+license-file = "LICENSE"
 
 [dependencies]
 vulkano = "0.19.0"

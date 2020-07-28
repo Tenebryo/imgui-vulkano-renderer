@@ -4,10 +4,12 @@ version = "0.1.0"
 authors = ["Sam Blazes"]
 edition = "2018"
 
-categories = ["gui", "rendering"]
 repository = "https://github.com/Tenebryo/imgui-vulkano-renderer"
 readme = "README.md"
 license-file = "LICENSE"
+description = "A renderer for imgui-rs using Vulkano"
+categories = ["gui", "rendering"]
+keyword = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 
 [dependencies]
 vulkano = "0.19.0"

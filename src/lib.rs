@@ -1,6 +1,6 @@
 mod shader;
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, BufferSlice, DeviceLocalBuffer};
+use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, BufferSlice};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::descriptor::PipelineLayoutAbstract;
@@ -196,12 +196,6 @@ pub struct Renderer {
     device : Arc<Device>,
     render_pass : Arc<dyn RenderPassAbstract + Send + Sync>,
     pipeline : Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-    vertex_buffer : Arc<CpuAccessibleBuffer<[Vertex]>>,
-    index_buffer : Arc<CpuAccessibleBuffer<[u16]>>,
-    vertex_buffer_len : usize,
-    index_buffer_len : usize,
-    vertex_dev_buffer : Arc<DeviceLocalBuffer<[Vertex]>>,
-    index_dev_buffer : Arc<DeviceLocalBuffer<[u16]>>,
     font_texture : Texture,
     textures : Textures<Texture>
 }
@@ -224,32 +218,6 @@ impl Renderer {
 
         let vs = shader::vs::Shader::load(device.clone()).unwrap();
         let fs = shader::fs::Shader::load(device.clone()).unwrap();
-
-        const BUFFER_LEN : usize = 256;
-
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(), 
-            BufferUsage::vertex_buffer() | BufferUsage::transfer_source(), 
-            false,
-            (0..BUFFER_LEN).map(|_| Vertex::default()))?;
-
-        let index_buffer = CpuAccessibleBuffer::from_iter(
-            device.clone(), 
-            BufferUsage::index_buffer() | BufferUsage::transfer_source(), 
-            false,
-            (0..BUFFER_LEN).map(|_| 0u16))?;
-
-        let vertex_dev_buffer = DeviceLocalBuffer::array(
-            device.clone(), 
-            BUFFER_LEN,
-            BufferUsage::vertex_buffer() | BufferUsage::transfer_destination(), 
-            [queue.family()].iter().cloned())?;
-
-        let index_dev_buffer = DeviceLocalBuffer::array(
-            device.clone(), 
-            BUFFER_LEN,
-            BufferUsage::index_buffer() | BufferUsage::transfer_destination(), 
-            [queue.family()].iter().cloned())?;
 
         let render_pass = Arc::new(
             vulkano::single_pass_renderpass!(
@@ -296,12 +264,6 @@ impl Renderer {
             device,
             render_pass : Arc::new(render_pass),
             pipeline : pipeline as Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
-            vertex_buffer,
-            index_buffer,
-            vertex_buffer_len : BUFFER_LEN,
-            index_buffer_len : BUFFER_LEN,
-            vertex_dev_buffer,
-            index_dev_buffer,
             font_texture,
             textures,
         })
@@ -320,7 +282,7 @@ impl Renderer {
     /// `target`: the target image to render to
     /// 
     /// `draw_data`: the ImGui `DrawData` that each UI frame creates
-    pub fn draw_commands<I, P>(&mut self, cmd_buf_builder : &mut AutoCommandBufferBuilder<P>, queue : Arc<Queue>, target : I, draw_data : &imgui::DrawData) -> Result<(), RendererError> 
+    pub fn draw_commands<I, P>(&mut self, cmd_buf_builder : &mut AutoCommandBufferBuilder<P>, _queue : Arc<Queue>, target : I, draw_data : &imgui::DrawData) -> Result<(), RendererError> 
     where I: ImageViewAccess + Send + Sync + 'static {
 
         let fb_width = draw_data.display_size[0] * draw_data.framebuffer_scale[0];
@@ -367,82 +329,44 @@ impl Renderer {
         let clip_off = draw_data.display_pos;
         let clip_scale = draw_data.framebuffer_scale;
 
-        let vtx_buf_len = draw_data.total_vtx_count as usize;
-        let idx_buf_len = draw_data.total_idx_count as usize;
+        // let vtx_buf_len = draw_data.total_vtx_count as usize;
+        // let idx_buf_len = draw_data.total_idx_count as usize;
 
+        let mut vertexes = vec![];
+        let mut indexes = vec![];
 
-        // "reallocate" (read: destroy and recreate with new length) buffers if they are not big enough
-        if vtx_buf_len > self.vertex_buffer_len {
-            self.vertex_buffer = unsafe {CpuAccessibleBuffer::<[Vertex]>::uninitialized_array(
-                self.device.clone(), 
-                vtx_buf_len,
-                BufferUsage::vertex_buffer() | BufferUsage::transfer_source(), 
-                false
-            )? };
-            self.vertex_dev_buffer = DeviceLocalBuffer::array(
-                self.device.clone(), 
-                vtx_buf_len,
-                BufferUsage::vertex_buffer() | BufferUsage::transfer_destination(), 
-                [queue.family()].iter().cloned())?;
-    
-            
-            self.vertex_buffer_len = vtx_buf_len;
+        for draw_list in draw_data.draw_lists() {
+            // update the vertex and index buffers
+            vertexes.extend(draw_list.vtx_buffer().iter().map(|&v| Vertex::from(v)));
+            indexes.extend(draw_list.idx_buffer().iter().cloned());
         }
 
-        if idx_buf_len > self.index_buffer_len {
-            self.index_buffer = unsafe {CpuAccessibleBuffer::<[u16]>::uninitialized_array(
-                self.device.clone(), 
-                idx_buf_len,
-                BufferUsage::index_buffer() | BufferUsage::transfer_source(), 
-                false
-            )? };
-            self.index_dev_buffer = DeviceLocalBuffer::array(
-                self.device.clone(), 
-                idx_buf_len,
-                BufferUsage::index_buffer() | BufferUsage::transfer_destination(), 
-                [queue.family()].iter().cloned())?;
-            
-            self.index_buffer_len = idx_buf_len;
-        }
+        let vertex_buffer = CpuAccessibleBuffer::from_iter(
+            self.device.clone(),
+            BufferUsage::vertex_buffer(),
+            false,
+            vertexes.iter().cloned()
+        )?;
+        let index_buffer = CpuAccessibleBuffer::from_iter(
+            self.device.clone(),
+            BufferUsage::index_buffer(),
+            false,
+            indexes.iter().cloned()
+        )?;
         
         
         let layout = self.pipeline.descriptor_set_layout(0).unwrap();
 
-        let mut dl_vtx_offset = 0;
-        let mut dl_idx_offset = 0;
-
-        // update the contents of the transfer buffer
-        if let Ok(mut vtx_lock) = self.vertex_buffer.write() {
-            if let Ok(mut idx_lock) = self.index_buffer.write() {
-        
-                for draw_list in draw_data.draw_lists() {
-                    // update the vertex and index buffers
-                    let dl_vtx_buf = draw_list.vtx_buffer();
-                    
-                    for i in 0..dl_vtx_buf.len() {
-                        vtx_lock[i + dl_vtx_offset] = dl_vtx_buf[i].into();
-                    }
-                    dl_vtx_offset += dl_vtx_buf.len();
-                    
-                    let dl_idx_buf = draw_list.idx_buffer();
-                    for i in 0..dl_idx_buf.len() {
-                        idx_lock[i + dl_idx_offset] = dl_idx_buf[i].into();
-                    }
-                    dl_idx_offset += dl_idx_buf.len();
-                }
-            }
-        }
-
         let framebuffer = Arc::new(Framebuffer::start(self.render_pass.clone())
             .add(target)?.build()?);
 
-        cmd_buf_builder.copy_buffer(self.vertex_buffer.clone(), self.vertex_dev_buffer.clone())?;
-        cmd_buf_builder.copy_buffer(self.index_buffer.clone(), self.index_dev_buffer.clone())?;
+        // cmd_buf_builder.copy_buffer(self.vertex_buffer.clone(), self.vertex_dev_buffer.clone())?;
+        // cmd_buf_builder.copy_buffer(self.index_buffer.clone(), self.index_dev_buffer.clone())?;
 
         cmd_buf_builder.begin_render_pass(framebuffer, false, vec![ClearValue::None])?;
 
-        dl_vtx_offset = 0;
-        dl_idx_offset = 0;
+        let mut dl_vtx_offset = 0;
+        let mut dl_idx_offset = 0;
 
         for draw_list in draw_data.draw_lists() {
 
@@ -471,8 +395,8 @@ impl Renderer {
                         
                         let vtx_slice_start = dl_vtx_offset + vtx_offset;
 
-                        let idx_slice = BufferSlice::from_typed_buffer_access(self.index_buffer.clone()).slice(idx_slice_start..idx_slice_end).unwrap();
-                        let vtx_slice = BufferSlice::from_typed_buffer_access(self.vertex_buffer.clone()).slice(vtx_slice_start..self.vertex_buffer_len).unwrap();
+                        let idx_slice = BufferSlice::from_typed_buffer_access(index_buffer.clone()).slice(idx_slice_start..idx_slice_end).unwrap();
+                        let vtx_slice = BufferSlice::from_typed_buffer_access(vertex_buffer.clone()).slice(vtx_slice_start..(vertexes.len())).unwrap();
 
                         if clip_rect[0] < fb_width
                             && clip_rect[1] < fb_height

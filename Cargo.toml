@@ -1,12 +1,12 @@
 [package]
 name = "imgui-vulkano-renderer"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Sam Blazes"]
 edition = "2018"
 
 repository = "https://github.com/Tenebryo/imgui-vulkano-renderer"
 readme = "README.md"
-license-file = "LICENSE"
+license-file = "MIT"
 description = "A renderer for imgui-rs using Vulkano"
 categories = ["gui", "rendering"]
 keyword = ["vulkano", "imgui", "graphics", "gui", "rendering"]

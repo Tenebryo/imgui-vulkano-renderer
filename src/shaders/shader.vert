@@ -15,17 +15,7 @@ layout(location = 1) out vec4 f_color;
 // vec4 gl_Position
 
 void main() {
-
-    const float ENC_SCALE = 1.0 / 255.0;
-
-    vec4 col_dec = ENC_SCALE * vec4(
-        bitfieldExtract(col, 0, 8),
-        bitfieldExtract(col, 8, 8),
-        bitfieldExtract(col, 16, 8),
-        bitfieldExtract(col, 24, 8)
-    );
-
     f_uv = uv;
-    f_color = col_dec;
+    f_color = unpackUnorm4x8(col);
     gl_Position = matrix * vec4(pos.xy, 0, 1);
 }

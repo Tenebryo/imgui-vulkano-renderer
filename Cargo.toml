@@ -6,7 +6,8 @@ edition = "2018"
 
 repository = "https://github.com/Tenebryo/imgui-vulkano-renderer"
 readme = "README.md"
-license-file = "MIT"
+license = "MIT"
+license-file = "LICENSE"
 description = "A renderer for imgui-rs using Vulkano"
 categories = ["gui", "rendering"]
 keyword = ["vulkano", "imgui", "graphics", "gui", "rendering"]

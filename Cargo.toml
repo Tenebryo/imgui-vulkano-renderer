@@ -15,11 +15,11 @@ keywords = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 [dependencies]
 vulkano = "0.19.0"
 vulkano-shaders = "0.19.0"
-imgui = { version = "0.4.0" }
+imgui = { version = "0.5.0" }
 
 [dev-dependencies]
 clipboard = "0.5.0"
-imgui-winit-support = "0.4.0"
+imgui-winit-support = "0.5.0"
 vulkano-win = "0.19.0"
 winit = "0.22.2"
 image = "0.23.8"

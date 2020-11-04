@@ -10,7 +10,7 @@ license = "MIT"
 license-file = "LICENSE"
 description = "A renderer for imgui-rs using Vulkano"
 categories = ["gui", "rendering"]
-keyword = ["vulkano", "imgui", "graphics", "gui", "rendering"]
+keywords = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 
 [dependencies]
 vulkano = "0.19.0"

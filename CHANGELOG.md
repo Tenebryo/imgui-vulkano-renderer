@@ -1,0 +1,7 @@
+# Version 0.2.0
+
+* Create new vertex and index buffers in case the previous ones are still in use. Once used, the buffers should be cleaned up by vulkano.
+
+# Version 0.1.0
+
+Initial version.

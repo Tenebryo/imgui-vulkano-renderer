@@ -1,6 +1,6 @@
 [package]
 name = "imgui-vulkano-renderer"
-version = "0.1.1"
+version = "0.2.0"
 authors = ["Sam Blazes"]
 edition = "2018"
 

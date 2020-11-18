@@ -4,7 +4,7 @@ A [vulkano]-based renderer for [imgui-rs].
 
 Warning: I've only used this renderer in a few examples and a couple projects, so there are likely some issues, but it seems to work with basic ImGui usage.
 
-Supports [imgui-rs] version `0.4.0` and [vulkano] version `0.19.0`.
+Supports [imgui-rs] version `0.5.0` and [vulkano] version `0.19.0`.
 
 ## Usage
 

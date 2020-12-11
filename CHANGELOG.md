@@ -1,3 +1,7 @@
+# Version 0.4.0
+
+* Bump `imgui-rs` version to 0.6.0
+
 # Version 0.3.0
 
 * Bump `imgui-rs` version to 0.5.0

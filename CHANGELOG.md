@@ -1,3 +1,11 @@
+
+# Version 0.5.0
+
+* Bump `imgui-rs` version to 0.6.1
+* Bump `vulkano` version to 0.20.0
+* Bump `winit` version to 0.24.0
+* Use `CpuBufferPool` from `vulkano` to allocate new vertex and index buffers each frame. I used to just create a new `CpuAccessibleBuffer` every frame, but this seems like a more correct solution.
+
 # Version 0.4.0
 
 * Bump `imgui-rs` version to 0.6.0

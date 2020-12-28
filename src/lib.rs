@@ -1,6 +1,6 @@
 mod shader;
 
-use vulkano::buffer::{BufferUsage, CpuAccessibleBuffer, BufferSlice};
+use vulkano::{buffer::{BufferAccess, BufferUsage, CpuBufferPool}, command_buffer::SubpassContents};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::descriptor::PipelineLayoutAbstract;
@@ -22,7 +22,7 @@ use vulkano::image::ImageViewAccess;
 use std::sync::Arc;
 use std::fmt;
 
-use imgui::{DrawVert, Textures, DrawCmd, DrawCmdParams, internal::RawWrapper, TextureId, ImString, BackendFlags};
+use imgui::{DrawVert, Textures, DrawCmd, DrawCmdParams, internal::RawWrapper, TextureId, ImString};
 
 #[derive(Default, Debug, Clone)]
 #[repr(C)]
@@ -193,11 +193,12 @@ impl From<vulkano::command_buffer::CopyBufferError> for RendererError {
 pub type Texture = (Arc<dyn ImageViewAccess + Send + Sync>, Arc<Sampler>);
 
 pub struct Renderer {
-    device : Arc<Device>,
     render_pass : Arc<dyn RenderPassAbstract + Send + Sync>,
     pipeline : Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     font_texture : Texture,
-    textures : Textures<Texture>
+    textures : Textures<Texture>,
+    vrt_buffer_pool : CpuBufferPool<Vertex>,
+    idx_buffer_pool : CpuBufferPool<u16>,
 }
 
 impl Renderer {
@@ -255,17 +256,17 @@ impl Renderer {
 
 
         ctx.set_renderer_name(Some(ImString::from(format!("imgui-vulkano-renderer {}", env!("CARGO_PKG_VERSION")))));
-        
-        ctx.io_mut()
-            .backend_flags
-            .insert(BackendFlags::RENDERER_HAS_VTX_OFFSET);
+
+        let vrt_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::vertex_buffer_transfer_destination());
+        let idx_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::index_buffer_transfer_destination());
 
         Ok(Renderer {
-            device,
             render_pass : Arc::new(render_pass),
             pipeline : pipeline as Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
             font_texture,
             textures,
+            vrt_buffer_pool,
+            idx_buffer_pool,
         })
     }
 
@@ -329,46 +330,18 @@ impl Renderer {
         let clip_off = draw_data.display_pos;
         let clip_scale = draw_data.framebuffer_scale;
 
-        // let vtx_buf_len = draw_data.total_vtx_count as usize;
-        // let idx_buf_len = draw_data.total_idx_count as usize;
-
-        let mut vertexes = vec![];
-        let mut indexes = vec![];
-
-        for draw_list in draw_data.draw_lists() {
-            // update the vertex and index buffers
-            vertexes.extend(draw_list.vtx_buffer().iter().map(|&v| Vertex::from(v)));
-            indexes.extend(draw_list.idx_buffer().iter().cloned());
-        }
-
-        let vertex_buffer = CpuAccessibleBuffer::from_iter(
-            self.device.clone(),
-            BufferUsage::vertex_buffer(),
-            false,
-            vertexes.iter().cloned()
-        )?;
-        let index_buffer = CpuAccessibleBuffer::from_iter(
-            self.device.clone(),
-            BufferUsage::index_buffer(),
-            false,
-            indexes.iter().cloned()
-        )?;
-        
         
         let layout = self.pipeline.descriptor_set_layout(0).unwrap();
 
         let framebuffer = Arc::new(Framebuffer::start(self.render_pass.clone())
             .add(target)?.build()?);
 
-        // cmd_buf_builder.copy_buffer(self.vertex_buffer.clone(), self.vertex_dev_buffer.clone())?;
-        // cmd_buf_builder.copy_buffer(self.index_buffer.clone(), self.index_dev_buffer.clone())?;
-
-        cmd_buf_builder.begin_render_pass(framebuffer, false, vec![ClearValue::None])?;
-
-        let mut dl_vtx_offset = 0;
-        let mut dl_idx_offset = 0;
+        cmd_buf_builder.begin_render_pass(framebuffer, SubpassContents::Inline, vec![ClearValue::None])?;
 
         for draw_list in draw_data.draw_lists() {
+            
+            let vertex_buffer = Arc::new(self.vrt_buffer_pool.chunk(draw_list.vtx_buffer().iter().map(|&v| Vertex::from(v))).unwrap());
+            let index_buffer  = Arc::new(self.idx_buffer_pool.chunk(draw_list.idx_buffer().iter().cloned()).unwrap());
 
             for cmd in draw_list.commands() {
                 match cmd {
@@ -378,7 +351,7 @@ impl Renderer {
                             DrawCmdParams {
                                 clip_rect,
                                 texture_id,
-                                vtx_offset,
+                                // vtx_offset,
                                 idx_offset,
                                 ..
                             },
@@ -389,14 +362,6 @@ impl Renderer {
                             (clip_rect[2] - clip_off[0]) * clip_scale[0],
                             (clip_rect[3] - clip_off[1]) * clip_scale[1],
                         ];
-
-                        let idx_slice_start = dl_idx_offset + idx_offset;
-                        let idx_slice_end   = idx_slice_start + count;
-                        
-                        let vtx_slice_start = dl_vtx_offset + vtx_offset;
-
-                        let idx_slice = BufferSlice::from_typed_buffer_access(index_buffer.clone()).slice(idx_slice_start..idx_slice_end).unwrap();
-                        let vtx_slice = BufferSlice::from_typed_buffer_access(vertex_buffer.clone()).slice(vtx_slice_start..(vertexes.len())).unwrap();
 
                         if clip_rect[0] < fb_width
                             && clip_rect[1] < fb_height
@@ -427,9 +392,9 @@ impl Renderer {
                             cmd_buf_builder.draw_indexed(
                                 self.pipeline.clone(), 
                                 &dynamic_state, 
-                                vec![Arc::new(vtx_slice)], 
-                                idx_slice, 
-                                set, 
+                                vec![vertex_buffer.clone()], 
+                                index_buffer.clone().into_buffer_slice().slice(idx_offset..(idx_offset+count)).unwrap(),
+                                set,
                                 pc)?;
                         }
                     }
@@ -439,9 +404,6 @@ impl Renderer {
                     },
                 }
             }
-
-            dl_vtx_offset += draw_list.vtx_buffer().len();
-            dl_idx_offset += draw_list.idx_buffer().len();
         }
         cmd_buf_builder.end_render_pass()?;
 
@@ -485,6 +447,7 @@ impl Renderer {
                 width : texture.width,
                 height : texture.height,
             },
+            vulkano::image::MipmapsCount::One,
             Format::R8G8B8A8Srgb,
             queue.clone(),
             )?;

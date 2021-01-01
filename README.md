@@ -1,3 +1,7 @@
+[![crates.io](https://img.shields.io/crates/v/imgui-vulkano-renderer)](https://crates.io/crates/imgui-vulkano-renderer)
+[![API Docs](https://docs.rs/imgui-vulkano-renderer/badge.svg)](https://docs.rs/imgui-vulkano-renderer/)
+![Liscense](https://img.shields.io/crates/l/imgui-vulkano-renderer)
+
 # imgui-vulkano-renderer
 
 A [vulkano]-based renderer for [imgui-rs].

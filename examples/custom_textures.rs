@@ -2,7 +2,7 @@ use std::error::Error;
 use std::io::Cursor;
 
 use vulkano::device::{Device, Queue};
-use vulkano::image::{ImmutableImage, Dimensions};
+use vulkano::image::{ImmutableImage, Dimensions, MipmapsCount};
 use vulkano::sampler::Sampler;
 use vulkano::format::Format;
 use vulkano::sync::GpuFuture;
@@ -53,6 +53,7 @@ impl CustomTexturesApp {
             let (texture, fut) = ImmutableImage::from_iter(
                 data.iter().cloned(),
                 Dimensions::Dim2d{width : WIDTH as u32, height : HEIGHT as u32},
+                MipmapsCount::One,
                 Format::R8G8B8A8Srgb,
                 queue.clone()
             ).expect("Failed to create texture");
@@ -115,6 +116,7 @@ impl Lenna {
         let (texture, fut) = ImmutableImage::from_iter(
             image_encoded.iter().cloned(),
             Dimensions::Dim2d{width, height},
+            MipmapsCount::One,
             Format::R8G8B8A8Srgb,
             queue.clone()
         ).expect("Failed to create texture");

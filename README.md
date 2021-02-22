@@ -52,7 +52,7 @@ let cmd_buf = cmd_buf_builder.build().unwrap();
 
 ### Misc.
 
-The font altas texture are reloaded with the following:
+The font altas texture can be reloaded with the following:
 
 ```rust
 renderer.reupload_font_texture(&mut imgui_ctx, device.clone(), queue.clone());

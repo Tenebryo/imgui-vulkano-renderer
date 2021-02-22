@@ -1,6 +1,6 @@
 [package]
 name = "imgui-vulkano-renderer"
-version = "0.5.0"
+version = "0.7.0"
 authors = ["Sam Blazes"]
 edition = "2018"
 
@@ -15,11 +15,11 @@ keywords = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 [dependencies]
 vulkano = "0.20.0"
 vulkano-shaders = "0.20.0"
-imgui = { version = "0.6.1" }
+imgui = "0.7.0"
 
 [dev-dependencies]
 clipboard = "0.5.0"
-imgui-winit-support = "0.6.1"
+imgui-winit-support = "0.7.0"
 vulkano-win = "0.20.0"
 winit = "0.24.0"
 image = "0.23.8"

@@ -4,6 +4,7 @@ use std::time::Instant;
 use std::time::Duration;
 
 use vulkano::command_buffer::AutoCommandBufferBuilder;
+use vulkano::image::view::ImageView;
 use vulkano::device::{Device, DeviceExtensions};
 use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::{Instance, PhysicalDevice};
@@ -103,23 +104,20 @@ pub fn init(title: &str) -> System {
             ..ImageUsage::color_attachment()
         };
 
-        Swapchain::new(
-            device.clone(),
-            surface.clone(),
-            caps.min_image_count,
-            format,
-            dimensions,
-            1,
-            image_usage,
-            &queue,
-            SurfaceTransform::Identity,
-            alpha,
-            PresentMode::Fifo,
-            FullscreenExclusive::Default,
-            true,
-            ColorSpace::SrgbNonLinear,
-        )
-        .unwrap()
+        Swapchain::start(device.clone(), surface.clone())
+            .num_images(caps.min_image_count)
+            .format(format)
+            .dimensions(dimensions)
+            .layers(1)
+            .usage(image_usage)
+            .transform(SurfaceTransform::Identity)
+            .composite_alpha(alpha)
+            .present_mode(PresentMode::Fifo)
+            .fullscreen_exclusive(FullscreenExclusive::Default)
+            .clipped(true)
+            .color_space(ColorSpace::SrgbNonLinear)
+            .build()
+            .expect("Failed to create swapchain")
     };
 
     let mut imgui = Context::create();
@@ -223,7 +221,7 @@ impl System {
                 if recreate_swapchain {
                     let dimensions: [u32; 2] = surface.window().inner_size().into();
                     let (new_swapchain, new_images) =
-                        match swapchain.recreate_with_dimensions(dimensions) {
+                        match swapchain.recreate().dimensions(dimensions).build() {
                             Ok(r) => r,
                             Err(SwapchainCreationError::UnsupportedDimensions) => return,
                             Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
@@ -259,14 +257,14 @@ impl System {
                 platform.prepare_render(&ui, surface.window());
                 let draw_data = ui.render();
 
-                let mut cmd_buf_builder = AutoCommandBufferBuilder::new(device.clone(), queue.family())
+                let mut cmd_buf_builder = AutoCommandBufferBuilder::primary(device.clone(), queue.family(), vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit)
                     .expect("Failed to create command buffer");
 
                 cmd_buf_builder.clear_color_image(images[image_num].clone(), [0.0; 4].into())
                     .expect("Failed to create image clear command");
 
                 renderer
-                    .draw_commands(&mut cmd_buf_builder, queue.clone(), images[image_num].clone(), draw_data)
+                    .draw_commands(&mut cmd_buf_builder, queue.clone(), ImageView::new(images[image_num].clone()).unwrap(), draw_data)
                     .expect("Rendering failed");
 
                 let cmd_buf = cmd_buf_builder.build()
@@ -278,11 +276,11 @@ impl System {
                     .join(acquire_future)
                     .then_execute(queue.clone(), cmd_buf)
                     .unwrap()
-                    .then_swapchain_present(queue.clone(), swapchain.clone(), image_num)
-                    .then_signal_fence_and_flush();
+                    .then_signal_fence()
+                    .then_swapchain_present(queue.clone(), swapchain.clone(), image_num);
 
-                match future {
-                    Ok(future) => {
+                match future.flush() {
+                    Ok(_) => {
                         previous_frame_end = Some(future.boxed());
                     }
                     Err(FlushError::OutOfDate) => {

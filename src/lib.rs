@@ -1,23 +1,21 @@
 mod shader;
 
-use vulkano::{buffer::{BufferAccess, BufferUsage, CpuBufferPool}, command_buffer::SubpassContents};
+use vulkano::{buffer::{BufferAccess, BufferUsage, CpuBufferPool}, command_buffer::{PrimaryAutoCommandBuffer, SubpassContents}, image::{ImageDimensions, ImageViewAbstract, view::ImageView}, render_pass::RenderPass};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
 use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::device::{Device, Queue};
-use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineCreationError, GraphicsPipelineAbstract};
+use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sync::GpuFuture;
 
-use vulkano::image::{ImmutableImage, Dimensions};
-use vulkano::sampler::{Sampler};
+use vulkano::image::ImmutableImage;
+use vulkano::sampler::Sampler;
 // use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
 use vulkano::format::{Format, ClearValue};
-use vulkano::framebuffer::{Subpass, RenderPassAbstract};
+use vulkano::render_pass::Subpass;
+use vulkano::render_pass::Framebuffer;
 use vulkano::pipeline::viewport::Scissor;
-use vulkano::framebuffer::Framebuffer;
 use vulkano::pipeline::viewport::Viewport;
-
-use vulkano::image::ImageViewAccess;
 
 use std::sync::Arc;
 use std::fmt;
@@ -43,69 +41,13 @@ impl From<DrawVert> for Vertex {
 
 #[derive(Debug)]
 pub enum RendererError {
-    GraphicsPipelineCreationError(GraphicsPipelineCreationError),
-    DeviceMemoryAllocError(vulkano::memory::DeviceMemoryAllocError),
-    OomError(vulkano::OomError),
-    DrawIndexedError(vulkano::command_buffer::DrawIndexedError),
-    PersistentDescriptorSetError(vulkano::descriptor::descriptor_set::PersistentDescriptorSetError),
-    PersistentDescriptorSetBuildError(vulkano::descriptor::descriptor_set::PersistentDescriptorSetBuildError),
-    FlushError(vulkano::sync::FlushError),
-    SamplerCreationError(vulkano::sampler::SamplerCreationError),
-    ImageCreationError(vulkano::image::ImageCreationError),
-    BeginRenderPassError(vulkano::command_buffer::BeginRenderPassError),
-    AutoCommandBufferBuilderContextError(vulkano::command_buffer::AutoCommandBufferBuilderContextError),
-    WriteLockError(vulkano::buffer::cpu_access::WriteLockError),
-    FramebufferCreationError(vulkano::framebuffer::FramebufferCreationError),
-    CopyBufferError(vulkano::command_buffer::CopyBufferError),
     BadTexture(TextureId),
-    BadImageDimensions(Dimensions),
+    BadImageDimensions(ImageDimensions),
 }
 
 impl fmt::Display for RendererError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            &Self::GraphicsPipelineCreationError(ref e) => {
-                write!(f, "Error creating rendering pipeline: {}", e)
-            },
-            &Self::DeviceMemoryAllocError(ref e) => {
-                write!(f, "Error allocating memory on the device: {}", e)
-            },
-            &Self::OomError(ref e) => {
-                write!(f, "Out of memory: {}", e)
-            },
-            &Self::DrawIndexedError(ref e) => {
-                write!(f, "Error creating draw_indexed command: {}", e)
-            },
-            &Self::PersistentDescriptorSetError(ref e) => {
-                write!(f, "Error creating descriptor set: {}", e)
-            },
-            &Self::PersistentDescriptorSetBuildError(ref e) => {
-                write!(f, "Error error building descriptor set: {}", e)
-            },
-            &Self::FlushError(ref e) => {
-                write!(f, "Error flushing futures: {}", e)
-            },
-            &Self::SamplerCreationError(ref e) => {
-                write!(f, "Error creating sampler: {}", e)
-            },
-            &Self::ImageCreationError(ref e) => {
-                write!(f, "Error creating image: {}", e)
-            },
-            &Self::BeginRenderPassError(ref e) => {
-                write!(f, "Error starting render pass: {}", e)
-            },
-            &Self::AutoCommandBufferBuilderContextError(ref e) => {
-                write!(f, "Error adding to command buffer: {}", e)
-            },
-            &Self::WriteLockError(ref e) => {
-                write!(f, "Could not acquire buffer write lock: {}", e)
-            },
-            &Self::FramebufferCreationError(ref e) => {
-                write!(f, "Error creating framebuffer {}", e)
-            },
-            &Self::CopyBufferError(ref e) => {
-                write!(f, "Error copying buffer: {:?}", e)
-            },
             &Self::BadTexture(ref t) => {
                 write!(f, "The Texture ID could not be found: {:?}", t)
             },
@@ -118,82 +60,11 @@ impl fmt::Display for RendererError {
 
 impl std::error::Error for RendererError {}
 
-impl From<GraphicsPipelineCreationError> for RendererError {
-    fn from(e : GraphicsPipelineCreationError) -> Self {
-        RendererError::GraphicsPipelineCreationError(e)
-    }
-}
-impl From<vulkano::memory::DeviceMemoryAllocError> for RendererError {
-    fn from(e : vulkano::memory::DeviceMemoryAllocError) -> Self {
-        RendererError::DeviceMemoryAllocError(e)
-    }
-}
-impl From<vulkano::OomError> for RendererError {
-    fn from(e : vulkano::OomError) -> Self {
-        RendererError::OomError(e)
-    }
-}
-impl From<vulkano::command_buffer::DrawIndexedError> for RendererError {
-    fn from(e : vulkano::command_buffer::DrawIndexedError) -> Self {
-        RendererError::DrawIndexedError(e)
-    }
-}
-impl From<vulkano::descriptor::descriptor_set::PersistentDescriptorSetError> for RendererError {
-    fn from(e : vulkano::descriptor::descriptor_set::PersistentDescriptorSetError) -> Self {
-        RendererError::PersistentDescriptorSetError(e)
-    }
-}
-impl From<vulkano::descriptor::descriptor_set::PersistentDescriptorSetBuildError> for RendererError {
-    fn from(e : vulkano::descriptor::descriptor_set::PersistentDescriptorSetBuildError) -> Self {
-        RendererError::PersistentDescriptorSetBuildError(e)
-    }
-}
-impl From<vulkano::sync::FlushError> for RendererError {
-    fn from(e : vulkano::sync::FlushError) -> Self {
-        RendererError::FlushError(e)
-    }
-}
-impl From<vulkano::sampler::SamplerCreationError> for RendererError {
-    fn from(e : vulkano::sampler::SamplerCreationError) -> Self {
-        RendererError::SamplerCreationError(e)
-    }
-}
-impl From<vulkano::command_buffer::BeginRenderPassError> for RendererError {
-    fn from(e : vulkano::command_buffer::BeginRenderPassError) -> Self {
-        RendererError::BeginRenderPassError(e)
-    }
-}
-impl From<vulkano::command_buffer::AutoCommandBufferBuilderContextError> for RendererError {
-    fn from(e : vulkano::command_buffer::AutoCommandBufferBuilderContextError) -> Self {
-        RendererError::AutoCommandBufferBuilderContextError(e)
-    }
-}
-impl From<vulkano::buffer::cpu_access::WriteLockError> for RendererError {
-    fn from(e : vulkano::buffer::cpu_access::WriteLockError) -> Self {
-        RendererError::WriteLockError(e)
-    }
-}
-impl From<vulkano::framebuffer::FramebufferCreationError> for RendererError {
-    fn from(e : vulkano::framebuffer::FramebufferCreationError) -> Self {
-        RendererError::FramebufferCreationError(e)
-    }
-}
-impl From<vulkano::image::ImageCreationError> for RendererError {
-    fn from(e : vulkano::image::ImageCreationError) -> Self {
-        RendererError::ImageCreationError(e)
-    }
-}
-impl From<vulkano::command_buffer::CopyBufferError> for RendererError {
-    fn from(e : vulkano::command_buffer::CopyBufferError) -> Self {
-        RendererError::CopyBufferError(e)
-    }
-}
 
-
-pub type Texture = (Arc<dyn ImageViewAccess + Send + Sync>, Arc<Sampler>);
+pub type Texture = (Arc<dyn ImageViewAbstract + Send + Sync>, Arc<Sampler>);
 
 pub struct Renderer {
-    render_pass : Arc<dyn RenderPassAbstract + Send + Sync>,
+    render_pass : Arc<RenderPass>,
     pipeline : Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
     font_texture : Texture,
     textures : Textures<Texture>,
@@ -215,7 +86,7 @@ impl Renderer {
     /// `queue`: the Vulkano `Queue` object for the queue the font atlas texture will be created on.
     /// 
     /// `format`: the Vulkano `Format` that the render pass will use when storing the frame in the target image.
-    pub fn init(ctx: &mut imgui::Context, device : Arc<Device>, queue : Arc<Queue>, format : Format) -> Result<Renderer, RendererError> {
+    pub fn init(ctx: &mut imgui::Context, device : Arc<Device>, queue : Arc<Queue>, format : Format) -> Result<Renderer, Box<dyn std::error::Error>> {
 
         let vs = shader::vs::Shader::load(device.clone()).unwrap();
         let fs = shader::fs::Shader::load(device.clone()).unwrap();
@@ -261,7 +132,7 @@ impl Renderer {
         let idx_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::index_buffer_transfer_destination());
 
         Ok(Renderer {
-            render_pass : Arc::new(render_pass),
+            render_pass,
             pipeline : pipeline as Arc<dyn GraphicsPipelineAbstract + Send + Sync>,
             font_texture,
             textures,
@@ -283,8 +154,8 @@ impl Renderer {
     /// `target`: the target image to render to
     /// 
     /// `draw_data`: the ImGui `DrawData` that each UI frame creates
-    pub fn draw_commands<I, P>(&mut self, cmd_buf_builder : &mut AutoCommandBufferBuilder<P>, _queue : Arc<Queue>, target : I, draw_data : &imgui::DrawData) -> Result<(), RendererError> 
-    where I: ImageViewAccess + Send + Sync + 'static {
+    pub fn draw_commands<I>(&mut self, cmd_buf_builder : &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>, _queue : Arc<Queue>, target : I, draw_data : &imgui::DrawData) -> Result<(), Box<dyn std::error::Error>> 
+    where I: ImageViewAbstract + Send + Sync + 'static {
 
         let fb_width = draw_data.display_size[0] * draw_data.framebuffer_scale[0];
         let fb_height = draw_data.display_size[1] * draw_data.framebuffer_scale[1];
@@ -310,9 +181,9 @@ impl Renderer {
             ]
         };
 
-        let dims = match target.dimensions() {
-            Dimensions::Dim2d {width, height} => {[width, height]},
-            d => { return Err(RendererError::BadImageDimensions(d));}
+        let dims = match target.image().dimensions() {
+            ImageDimensions::Dim2d {width, height, ..} => {[width, height]},
+            d => { return Err(Box::new(RendererError::BadImageDimensions(d)));}
         };
 
         let mut dynamic_state = DynamicState::default();
@@ -395,7 +266,8 @@ impl Renderer {
                                 vec![vertex_buffer.clone()], 
                                 index_buffer.clone().into_buffer_slice().slice(idx_offset..(idx_offset+count)).unwrap(),
                                 set,
-                                pc)?;
+                                pc,
+                                vec![])?;
                         }
                     }
                     DrawCmd::ResetRenderState => (), // TODO
@@ -424,7 +296,7 @@ impl Renderer {
         ctx: &mut imgui::Context,
         device : Arc<Device>,
         queue : Arc<Queue>,
-    ) -> Result<(), RendererError> {
+    ) -> Result<(), Box<dyn std::error::Error>> {
         self.font_texture = Self::upload_font_texture(ctx.fonts(), device, queue)?;
         Ok(())
     }
@@ -438,14 +310,15 @@ impl Renderer {
         mut fonts: imgui::FontAtlasRefMut,
         device : Arc<Device>,
         queue : Arc<Queue>,
-    ) -> Result<Texture, RendererError> {
+    ) -> Result<Texture, Box<dyn std::error::Error>> {
         let texture = fonts.build_rgba32_texture();
 
         let (image, fut) = ImmutableImage::from_iter(
             texture.data.iter().cloned(),
-            Dimensions::Dim2d{
+            ImageDimensions::Dim2d{
                 width : texture.width,
                 height : texture.height,
+                array_layers : 1,
             },
             vulkano::image::MipmapsCount::One,
             Format::R8G8B8A8Srgb,
@@ -458,7 +331,7 @@ impl Renderer {
         let sampler = Sampler::simple_repeat_linear(device.clone());
 
         fonts.tex_id = TextureId::from(usize::MAX);
-        Ok((image, sampler))
+        Ok((ImageView::new(image)?, sampler))
     }
 
     fn lookup_texture(&self, texture_id: TextureId) -> Result<&Texture, RendererError> {

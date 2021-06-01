@@ -8,9 +8,9 @@ A [vulkano]-based renderer for [imgui-rs].
 
 Warning: I've only used this renderer in a few examples and a couple projects, so there are likely some issues, but it seems to work with basic ImGui usage.
 
-Supports [imgui-rs] version `0.6.0` and [vulkano] version `0.19.0`. 
+Supports [imgui-rs] version `0.7.0` and [vulkano] version `0.23.0`. 
 
-Note: Currently `vulkano-win`, the [vulkano] `winit` integration, only supports `winit 0.22.2` while `imgui-winit-support` by default uses `winit 0.23.0`. To make them compatible, enable the `winit-22` feature in the `imgui-winit-support` crate.
+Note: Currently `vulkano-win` and `imgui-winit-support`, the [vulkano] and [imgui-rs] `winit` integrations, only support `winit 0.24.0`, even though the current winit version is `0.25.0`.
 
 ## Usage
 

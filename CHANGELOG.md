@@ -1,3 +1,7 @@
+# Version 0.7.1
+
+* Bump `vulkano` version to 0.23.0
+
 # Version 0.7.0
 
 * Bump `imgui-rs` version to 0.7.0

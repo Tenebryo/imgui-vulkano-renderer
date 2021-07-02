@@ -1,3 +1,8 @@
+# Version 0.7.2
+
+* Bump `vulkano` version to 0.24.0
+* Bump `winit` version to 0.25.0
+
 # Version 0.7.1
 
 * Bump `vulkano` version to 0.23.0

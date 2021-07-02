@@ -2,7 +2,8 @@ use std::error::Error;
 use std::io::Cursor;
 
 use vulkano::device::{Device, Queue};
-use vulkano::image::{ImmutableImage, Dimensions, MipmapsCount};
+use vulkano::image::view::ImageView;
+use vulkano::image::{ImmutableImage, ImageDimensions, MipmapsCount};
 use vulkano::sampler::Sampler;
 use vulkano::format::Format;
 use vulkano::sync::GpuFuture;
@@ -52,7 +53,7 @@ impl CustomTexturesApp {
 
             let (texture, fut) = ImmutableImage::from_iter(
                 data.iter().cloned(),
-                Dimensions::Dim2d{width : WIDTH as u32, height : HEIGHT as u32},
+                ImageDimensions::Dim2d{width : WIDTH as u32, height : HEIGHT as u32, array_layers : 1},
                 MipmapsCount::One,
                 Format::R8G8B8A8Srgb,
                 queue.clone()
@@ -63,7 +64,7 @@ impl CustomTexturesApp {
             fut.then_signal_fence_and_flush().unwrap()
                 .wait(None).expect("Failed to load texture");
 
-            let texture_id = textures.insert((texture, sampler));
+            let texture_id = textures.insert((ImageView::new(texture).unwrap(), sampler));
 
             self.my_texture_id = Some(texture_id);
         }
@@ -115,7 +116,7 @@ impl Lenna {
 
         let (texture, fut) = ImmutableImage::from_iter(
             image_encoded.iter().cloned(),
-            Dimensions::Dim2d{width, height},
+            ImageDimensions::Dim2d{width, height, array_layers : 1},
             MipmapsCount::One,
             Format::R8G8B8A8Srgb,
             queue.clone()
@@ -126,7 +127,7 @@ impl Lenna {
         fut.then_signal_fence_and_flush().unwrap()
             .wait(None).expect("Failed to load texture");
 
-        let texture_id = textures.insert((texture, sampler));
+        let texture_id = textures.insert((ImageView::new(texture).unwrap(), sampler));
         Ok(Lenna {
             texture_id,
             size: [width as f32, height as f32],

@@ -3,7 +3,6 @@ mod shader;
 use vulkano::{buffer::{BufferAccess, BufferUsage, CpuBufferPool}, command_buffer::{PrimaryAutoCommandBuffer, SubpassContents}, image::{ImageDimensions, ImageViewAbstract, view::ImageView}, render_pass::RenderPass};
 use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::descriptor::descriptor_set::PersistentDescriptorSet;
-use vulkano::descriptor::PipelineLayoutAbstract;
 use vulkano::device::{Device, Queue};
 use vulkano::pipeline::{GraphicsPipeline, GraphicsPipelineAbstract};
 use vulkano::sync::GpuFuture;
@@ -202,7 +201,7 @@ impl Renderer {
         let clip_scale = draw_data.framebuffer_scale;
 
         
-        let layout = self.pipeline.descriptor_set_layout(0).unwrap();
+        let layout = self.pipeline.layout().descriptor_set_layout(0).unwrap();
 
         let framebuffer = Arc::new(Framebuffer::start(self.render_pass.clone())
             .add(target)?.build()?);

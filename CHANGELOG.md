@@ -1,3 +1,7 @@
+# Version 0.7.3
+
+* With certain graphics drivers, using push constants with `vulkano` results in leaked memory. In order to prevent that, the previous usage of push constants was replaced with a uniform buffer allocated from a `CpuBufferPool`.
+
 # Version 0.7.2
 
 * Bump `vulkano` version to 0.24.0

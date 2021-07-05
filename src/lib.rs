@@ -69,6 +69,7 @@ pub struct Renderer {
     textures : Textures<Texture>,
     vrt_buffer_pool : CpuBufferPool<Vertex>,
     idx_buffer_pool : CpuBufferPool<u16>,
+    transform_buffer_pool : CpuBufferPool<[[f32; 4]; 4]>,
 }
 
 impl Renderer {
@@ -129,6 +130,7 @@ impl Renderer {
 
         let vrt_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::vertex_buffer_transfer_destination());
         let idx_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::index_buffer_transfer_destination());
+        let transform_buffer_pool = CpuBufferPool::new(device.clone(), BufferUsage::uniform_buffer_transfer_destination());
 
         Ok(Renderer {
             render_pass,
@@ -137,6 +139,7 @@ impl Renderer {
             textures,
             vrt_buffer_pool,
             idx_buffer_pool,
+            transform_buffer_pool,
         })
     }
 
@@ -166,8 +169,8 @@ impl Renderer {
         let top = draw_data.display_pos[1];
         let bottom = draw_data.display_pos[1] + draw_data.display_size[1];
 
-        let pc = shader::vs::ty::VertPC {
-            matrix : [
+        let transform =  self.transform_buffer_pool.next(
+            [
                 [(2.0 / (right - left)), 0.0, 0.0, 0.0],
                 [0.0, (2.0 / (bottom - top)), 0.0, 0.0],
                 [0.0, 0.0, -1.0, 0.0],
@@ -178,7 +181,7 @@ impl Renderer {
                     1.0,
                 ],
             ]
-        };
+        ).unwrap();
 
         let dims = match target.image().dimensions() {
             ImageDimensions::Dim2d {width, height, ..} => {[width, height]},
@@ -255,6 +258,7 @@ impl Renderer {
                             let tex = self.lookup_texture(texture_id)?;
 
                             let set = Arc::new(PersistentDescriptorSet::start(layout.clone())
+                                .add_buffer(transform.clone())?
                                 .add_sampled_image(tex.0.clone(), tex.1.clone())?
                                 .build()?
                             );
@@ -265,7 +269,7 @@ impl Renderer {
                                 vec![vertex_buffer.clone()], 
                                 index_buffer.clone().into_buffer_slice().slice(idx_offset..(idx_offset+count)).unwrap(),
                                 set,
-                                pc,
+                                (),
                                 vec![])?;
                         }
                     }

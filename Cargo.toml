@@ -1,6 +1,6 @@
 [package]
 name = "imgui-vulkano-renderer"
-version = "0.7.1"
+version = "0.8.0"
 authors = ["Sam Blazes"]
 edition = "2018"
 
@@ -13,14 +13,19 @@ categories = ["gui", "rendering"]
 keywords = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 
 [dependencies]
-vulkano = "0.23.0"
-vulkano-shaders = "0.23.0"
-imgui = "0.7.0"
+vulkano = "0.27"
+vulkano-shaders = "0.27"
+imgui = "0.8.2"
 
 [dev-dependencies]
 clipboard = "0.5.0"
-imgui-winit-support = "0.7.1"
-vulkano-win = "0.23.0"
-# winit 0.25.0 is not supported on crates.io
-winit = "0.24.0" 
+imgui-winit-support = {version = "0.8.2", default_features = false, features = ["winit-26"]}
+vulkano-win = "0.27"
+
+winit = "0.26.0"
 image = "0.23.8"
+
+[patch.crates-io]
+vulkano = {git = "https://github.com/fayalalebrun/vulkano.git"}
+vulkano-shaders = {git = "https://github.com/fayalalebrun/vulkano.git"}
+vulkano-win = {git = "https://github.com/fayalalebrun/vulkano.git"}

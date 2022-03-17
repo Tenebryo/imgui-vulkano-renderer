@@ -2,7 +2,7 @@
 name = "imgui-vulkano-renderer"
 version = "0.8.0"
 authors = ["Sam Blazes"]
-edition = "2018"
+edition = "2021"
 
 repository = "https://github.com/Tenebryo/imgui-vulkano-renderer"
 readme = "README.md"

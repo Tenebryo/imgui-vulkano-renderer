@@ -5,7 +5,7 @@ use vulkano::device::{Device, Queue};
 use vulkano::format::Format;
 use vulkano::image::view::ImageView;
 use vulkano::image::{ImageDimensions, ImmutableImage, MipmapsCount};
-use vulkano::sampler::Sampler;
+use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::sync::GpuFuture;
 
 use image::{jpeg::JpegDecoder, ImageDecoder};
@@ -63,14 +63,17 @@ impl CustomTexturesApp {
             )
             .expect("Failed to create texture");
 
-            let sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
+            let sampler = Sampler::new(
+                device.clone(),
+                SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+            )?;
 
             fut.then_signal_fence_and_flush()
                 .unwrap()
                 .wait(None)
                 .expect("Failed to load texture");
 
-            let texture_id = textures.insert((ImageView::new(texture)?, sampler));
+            let texture_id = textures.insert((ImageView::new_default(texture)?, sampler));
 
             self.my_texture_id = Some(texture_id);
         }
@@ -136,14 +139,17 @@ impl Lenna {
         )
         .expect("Failed to create texture");
 
-        let sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
+        let sampler = Sampler::new(
+            device.clone(),
+            SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+        )?;
 
         fut.then_signal_fence_and_flush()
             .unwrap()
             .wait(None)
             .expect("Failed to load texture");
 
-        let texture_id = textures.insert((ImageView::new(texture)?, sampler));
+        let texture_id = textures.insert((ImageView::new_default(texture)?, sampler));
         Ok(Lenna {
             texture_id,
             size: [width as f32, height as f32],

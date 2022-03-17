@@ -3,7 +3,11 @@ use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::time::Duration;
 use std::time::Instant;
 use vulkano::device::physical::PhysicalDevice;
-use vulkano::Version;
+use vulkano::device::physical::PhysicalDeviceType;
+use vulkano::device::DeviceCreateInfo;
+use vulkano::device::QueueCreateInfo;
+use vulkano::instance::InstanceCreateInfo;
+use vulkano::swapchain::SwapchainCreateInfo;
 
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Queue;
@@ -13,10 +17,7 @@ use vulkano::image::{ImageUsage, SwapchainImage};
 use vulkano::instance::Instance;
 use vulkano::swapchain;
 use vulkano::swapchain::Surface;
-use vulkano::swapchain::{
-    AcquireError, ColorSpace, FullscreenExclusive, PresentMode, SurfaceTransform, Swapchain,
-    SwapchainCreationError,
-};
+use vulkano::swapchain::{AcquireError, ColorSpace, Swapchain, SwapchainCreationError};
 use vulkano::sync;
 use vulkano::sync::{FlushError, GpuFuture};
 
@@ -45,9 +46,16 @@ pub struct System {
 
 pub fn init(title: &str) -> System {
     let required_extensions = vulkano_win::required_extensions();
-    let instance = Instance::new(None, Version::V1_1, &required_extensions, None).unwrap();
+    let instance = Instance::new(InstanceCreateInfo {
+        enabled_extensions: required_extensions,
+        ..Default::default()
+    })
+    .unwrap();
 
-    let physical = PhysicalDevice::enumerate(&instance).next().unwrap();
+    let device_extensions = DeviceExtensions {
+        khr_swapchain: true,
+        ..DeviceExtensions::none()
+    };
 
     let title = match title.rfind('/') {
         Some(idx) => title.split_at(idx + 1).1,
@@ -64,23 +72,29 @@ pub fn init(title: &str) -> System {
     )
     .expect("Failed to create a window");
 
-    let queue_family = physical
-        .queue_families()
-        .find(|&q| {
-            // We take the first queue that supports drawing to our window.
-            q.supports_graphics() && surface.is_supported(q).unwrap_or(false)
+    let (physical, queue_family) = PhysicalDevice::enumerate(&instance)
+        .filter(|&p| p.supported_extensions().is_superset_of(&device_extensions))
+        .filter_map(|p| {
+            p.queue_families()
+                .find(|&q| q.supports_graphics() && q.supports_surface(&surface).unwrap_or(false))
+                .map(|q| (p, q))
+        })
+        .min_by_key(|(p, _)| match p.properties().device_type {
+            PhysicalDeviceType::DiscreteGpu => 0,
+            PhysicalDeviceType::IntegratedGpu => 1,
+            PhysicalDeviceType::VirtualGpu => 2,
+            PhysicalDeviceType::Cpu => 3,
+            PhysicalDeviceType::Other => 4,
         })
         .unwrap();
 
-    let device_ext = DeviceExtensions {
-        khr_swapchain: true,
-        ..DeviceExtensions::none()
-    };
     let (device, mut queues) = Device::new(
         physical,
-        physical.supported_features(),
-        &device_ext,
-        [(queue_family, 0.5)].iter().cloned(),
+        DeviceCreateInfo {
+            enabled_extensions: physical.required_extensions().union(&device_extensions),
+            queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
+            ..Default::default()
+        },
     )
     .unwrap();
 
@@ -89,33 +103,36 @@ pub fn init(title: &str) -> System {
     let format;
 
     let (swapchain, images) = {
-        let caps = surface.capabilities(physical).unwrap();
+        let caps = physical
+            .surface_capabilities(&surface, Default::default())
+            .unwrap();
 
-        let alpha = caps.supported_composite_alpha.iter().next().unwrap();
-
-        format = caps.supported_formats[0].0;
-
-        let dimensions: [u32; 2] = surface.window().inner_size().into();
+        format = Some(
+            physical
+                .surface_formats(&surface, Default::default())
+                .unwrap()[0]
+                .0,
+        );
 
         let image_usage = ImageUsage {
             transfer_destination: true,
             ..ImageUsage::color_attachment()
         };
 
-        Swapchain::start(device.clone(), surface.clone())
-            .num_images(caps.min_image_count)
-            .format(format)
-            .dimensions(dimensions)
-            .layers(1)
-            .usage(image_usage)
-            .transform(SurfaceTransform::Identity)
-            .composite_alpha(alpha)
-            .present_mode(PresentMode::Fifo)
-            .fullscreen_exclusive(FullscreenExclusive::Default)
-            .clipped(true)
-            .color_space(ColorSpace::SrgbNonLinear)
-            .build()
-            .expect("Failed to create swapchain")
+        Swapchain::new(
+            device.clone(),
+            surface.clone(),
+            SwapchainCreateInfo {
+                min_image_count: caps.min_image_count,
+                image_format: format,
+                image_extent: surface.window().inner_size().into(),
+                image_usage,
+                composite_alpha: caps.supported_composite_alpha.iter().next().unwrap(),
+                image_color_space: ColorSpace::SrgbNonLinear,
+                ..Default::default()
+            },
+        )
+        .unwrap()
     };
 
     let mut imgui = Context::create();
@@ -152,7 +169,7 @@ pub fn init(title: &str) -> System {
 
     imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
-    let renderer = Renderer::init(&mut imgui, device.clone(), queue.clone(), format)
+    let renderer = Renderer::init(&mut imgui, device.clone(), queue.clone(), format.unwrap())
         .expect("Failed to initialize renderer");
 
     System {
@@ -225,11 +242,15 @@ impl System {
                     previous_frame_end.as_mut().unwrap().cleanup_finished();
 
                     if recreate_swapchain {
-                        let dimensions: [u32; 2] = surface.window().inner_size().into();
                         let (new_swapchain, new_images) =
-                            match swapchain.recreate().dimensions(dimensions).build() {
+                            match swapchain.recreate(SwapchainCreateInfo {
+                                image_extent: surface.window().inner_size().into(),
+                                ..swapchain.create_info()
+                            }) {
                                 Ok(r) => r,
-                                Err(SwapchainCreationError::UnsupportedDimensions) => return,
+                                Err(SwapchainCreationError::ImageExtentNotSupported { .. }) => {
+                                    return
+                                }
                                 Err(e) => panic!("Failed to recreate swapchain: {:?}", e),
                             };
 
@@ -279,7 +300,7 @@ impl System {
                         .draw_commands(
                             &mut cmd_buf_builder,
                             queue.clone(),
-                            ImageView::new(images[image_num].clone()).unwrap(),
+                            ImageView::new_default(images[image_num].clone()).unwrap(),
                             draw_data,
                         )
                         .expect("Rendering failed");

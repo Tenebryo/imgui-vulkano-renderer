@@ -1,5 +1,7 @@
 mod shader;
 
+use bytemuck::{Pod, Zeroable};
+use std::convert::TryFrom;
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
 use vulkano::pipeline::graphics::color_blend::ColorBlendState;
@@ -18,19 +20,19 @@ use vulkano::pipeline::{GraphicsPipeline, Pipeline};
 use vulkano::sync::GpuFuture;
 
 use vulkano::image::ImmutableImage;
-use vulkano::sampler::Sampler;
+use vulkano::sampler::{Sampler, SamplerCreateInfo};
 // use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
 use vulkano::format::{ClearValue, Format};
 
-use vulkano::render_pass::Framebuffer;
 use vulkano::render_pass::Subpass;
+use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo};
 
 use std::fmt;
 use std::sync::Arc;
 
 use imgui::{internal::RawWrapper, DrawCmd, DrawCmdParams, DrawVert, TextureId, Textures};
 
-#[derive(Default, Debug, Clone)]
+#[derive(Default, Debug, Copy, Clone, Zeroable, Pod)]
 #[repr(C)]
 struct Vertex {
     pub pos: [f32; 2],
@@ -216,16 +218,15 @@ impl Renderer {
         let clip_off = draw_data.display_pos;
         let clip_scale = draw_data.framebuffer_scale;
 
-        let layout = self
-            .pipeline
-            .layout()
-            .descriptor_set_layouts()
-            .get(0)
-            .unwrap();
+        let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
-        let framebuffer = Framebuffer::start(self.render_pass.clone())
-            .add(target)?
-            .build()?;
+        let framebuffer = Framebuffer::new(
+            self.render_pass.clone(),
+            FramebufferCreateInfo {
+                attachments: vec![target],
+                ..Default::default()
+            },
+        )?;
 
         cmd_buf_builder
             .begin_render_pass(framebuffer, SubpassContents::Inline, vec![ClearValue::None])?
@@ -367,10 +368,10 @@ impl Renderer {
 
         fut.then_signal_fence_and_flush()?.wait(None)?;
 
-        let sampler = Sampler::simple_repeat_linear(device.clone());
+        let sampler = Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear())?;
 
         fonts.tex_id = TextureId::from(usize::MAX);
-        Ok((ImageView::new(image)?, sampler))
+        Ok((ImageView::new_default(image)?, sampler))
     }
 
     fn lookup_texture(&self, texture_id: TextureId) -> Result<&Texture, RendererError> {

@@ -2,6 +2,7 @@ use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::time::Duration;
 use std::time::Instant;
+use vulkano::command_buffer::ClearColorImageInfo;
 use vulkano::device::physical::PhysicalDevice;
 use vulkano::device::physical::PhysicalDeviceType;
 use vulkano::device::DeviceCreateInfo;
@@ -115,7 +116,7 @@ pub fn init(title: &str) -> System {
         );
 
         let image_usage = ImageUsage {
-            transfer_destination: true,
+            transfer_dst: true,
             ..ImageUsage::color_attachment()
         };
 
@@ -293,7 +294,7 @@ impl System {
                     .expect("Failed to create command buffer");
 
                     cmd_buf_builder
-                        .clear_color_image(images[image_num].clone(), [0.0; 4].into())
+                        .clear_color_image(ClearColorImageInfo::image(images[image_num].clone()))
                         .expect("Failed to create image clear command");
 
                     renderer

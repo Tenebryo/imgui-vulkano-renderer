@@ -22,7 +22,7 @@ use vulkano::sync::GpuFuture;
 use vulkano::image::ImmutableImage;
 use vulkano::sampler::{Sampler, SamplerCreateInfo};
 // use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
-use vulkano::format::{ClearValue, Format};
+use vulkano::format::Format;
 
 use vulkano::render_pass::Subpass;
 use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo};
@@ -142,14 +142,10 @@ impl Renderer {
             env!("CARGO_PKG_VERSION")
         )));
 
-        let vrt_buffer_pool = CpuBufferPool::new(
-            device.clone(),
-            BufferUsage::vertex_buffer_transfer_destination(),
-        );
-        let idx_buffer_pool = CpuBufferPool::new(
-            device.clone(),
-            BufferUsage::index_buffer_transfer_destination(),
-        );
+        let vrt_buffer_pool =
+            CpuBufferPool::new(device.clone(), BufferUsage::vertex_buffer_transfer_dst());
+        let idx_buffer_pool =
+            CpuBufferPool::new(device.clone(), BufferUsage::index_buffer_transfer_dst());
 
         Ok(Renderer {
             render_pass,
@@ -228,8 +224,11 @@ impl Renderer {
             },
         )?;
 
+        let mut info = vulkano::command_buffer::RenderPassBeginInfo::framebuffer(framebuffer);
+        info.clear_values = vec![Some([0.0].into())];
+
         cmd_buf_builder
-            .begin_render_pass(framebuffer, SubpassContents::Inline, vec![ClearValue::None])?
+            .begin_render_pass(info, SubpassContents::Inline)?
             .bind_pipeline_graphics(self.pipeline.clone());
 
         for draw_list in draw_data.draw_lists() {

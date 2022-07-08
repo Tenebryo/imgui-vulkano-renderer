@@ -26,3 +26,7 @@ vulkano-win = "0.29"
 winit = "0.26.0"
 image = "0.23.8"
 
+[patch.crates-io]
+vulkano = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}
+vulkano-shaders = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}
+vulkano-win = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}

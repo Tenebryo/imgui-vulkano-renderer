@@ -14,19 +14,14 @@ keywords = ["vulkano", "imgui", "graphics", "gui", "rendering"]
 
 [dependencies]
 bytemuck = { version = "1.7", features = ["derive", "extern_crate_std", "min_const_generics"] }
-vulkano = "0.29"
-vulkano-shaders = "0.29"
+vulkano = "0.30"
+vulkano-shaders = "0.30"
 imgui = "0.8.2"
 
 [dev-dependencies]
 clipboard = "0.5.0"
 imgui-winit-support = {version = "0.8.2", default_features = false, features = ["winit-26"]}
-vulkano-win = "0.29"
+vulkano-win = "0.30"
 
 winit = "0.26.0"
 image = "0.23.8"
-
-[patch.crates-io]
-vulkano = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}
-vulkano-shaders = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}
-vulkano-win = {git = "https://github.com/VideowindoW/vulkano", rev = "92756f9"}

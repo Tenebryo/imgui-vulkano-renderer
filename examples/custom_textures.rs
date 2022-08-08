@@ -2,9 +2,10 @@ use std::error::Error;
 use std::io::Cursor;
 
 use vulkano::device::{Device, Queue};
-use vulkano::image::{ImmutableImage, Dimensions, MipmapsCount};
-use vulkano::sampler::Sampler;
 use vulkano::format::Format;
+use vulkano::image::view::ImageView;
+use vulkano::image::{ImageDimensions, ImmutableImage, MipmapsCount};
+use vulkano::sampler::{Sampler, SamplerCreateInfo};
 use vulkano::sync::GpuFuture;
 
 use image::{jpeg::JpegDecoder, ImageDecoder};
@@ -29,11 +30,10 @@ struct Lenna {
 impl CustomTexturesApp {
     fn register_textures(
         &mut self,
-        device : Arc<Device>,
-        queue : Arc<Queue>,
-        textures : &mut Textures<Texture>,
-    ) -> Result<(), Box<dyn Error>>
-    {
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        textures: &mut Textures<Texture>,
+    ) -> Result<(), Box<dyn Error>> {
         const WIDTH: usize = 100;
         const HEIGHT: usize = 100;
 
@@ -52,18 +52,28 @@ impl CustomTexturesApp {
 
             let (texture, fut) = ImmutableImage::from_iter(
                 data.iter().cloned(),
-                Dimensions::Dim2d{width : WIDTH as u32, height : HEIGHT as u32},
+                ImageDimensions::Dim2d {
+                    width: WIDTH as u32,
+                    height: HEIGHT as u32,
+                    array_layers: 1,
+                },
                 MipmapsCount::One,
-                Format::R8G8B8A8Srgb,
-                queue.clone()
-            ).expect("Failed to create texture");
-    
-            let sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
-    
-            fut.then_signal_fence_and_flush().unwrap()
-                .wait(None).expect("Failed to load texture");
+                Format::R8G8B8A8_SRGB,
+                queue.clone(),
+            )
+            .expect("Failed to create texture");
 
-            let texture_id = textures.insert((texture, sampler));
+            let sampler = Sampler::new(
+                device.clone(),
+                SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+            )?;
+
+            fut.then_signal_fence_and_flush()
+                .unwrap()
+                .wait(None)
+                .expect("Failed to load texture");
+
+            let texture_id = textures.insert((ImageView::new_default(texture)?, sampler));
 
             self.my_texture_id = Some(texture_id);
         }
@@ -76,10 +86,10 @@ impl CustomTexturesApp {
     }
 
     fn show_textures(&self, ui: &Ui) {
-        Window::new(im_str!("Hello textures"))
+        Window::new("Hello textures")
             .size([400.0, 600.0], Condition::FirstUseEver)
             .build(ui, || {
-                ui.text(im_str!("Hello textures!"));
+                ui.text("Hello textures!");
                 if let Some(my_texture_id) = self.my_texture_id {
                     ui.text("Some generated texture");
                     Image::new(my_texture_id, [100.0, 100.0]).build(ui);
@@ -94,8 +104,11 @@ impl CustomTexturesApp {
 }
 
 impl Lenna {
-    fn new(device : Arc<Device>, queue : Arc<Queue>, textures: &mut Textures<Texture>) -> Result<Self, Box<dyn Error>>
-    {
+    fn new(
+        device: Arc<Device>,
+        queue: Arc<Queue>,
+        textures: &mut Textures<Texture>,
+    ) -> Result<Self, Box<dyn Error>> {
         let lenna_bytes = include_bytes!("resources/Lenna.jpg");
         let byte_stream = Cursor::new(lenna_bytes.as_ref());
         let decoder = JpegDecoder::new(byte_stream)?;
@@ -115,18 +128,28 @@ impl Lenna {
 
         let (texture, fut) = ImmutableImage::from_iter(
             image_encoded.iter().cloned(),
-            Dimensions::Dim2d{width, height},
+            ImageDimensions::Dim2d {
+                width,
+                height,
+                array_layers: 1,
+            },
             MipmapsCount::One,
-            Format::R8G8B8A8Srgb,
-            queue.clone()
-        ).expect("Failed to create texture");
+            Format::R8G8B8A8_SRGB,
+            queue.clone(),
+        )
+        .expect("Failed to create texture");
 
-        let sampler = Sampler::simple_repeat_linear_no_mipmap(device.clone());
+        let sampler = Sampler::new(
+            device.clone(),
+            SamplerCreateInfo::simple_repeat_linear_no_mipmap(),
+        )?;
 
-        fut.then_signal_fence_and_flush().unwrap()
-            .wait(None).expect("Failed to load texture");
+        fut.then_signal_fence_and_flush()
+            .unwrap()
+            .wait(None)
+            .expect("Failed to load texture");
 
-        let texture_id = textures.insert((texture, sampler));
+        let texture_id = textures.insert((ImageView::new_default(texture)?, sampler));
         Ok(Lenna {
             texture_id,
             size: [width as f32, height as f32],
@@ -143,7 +166,11 @@ fn main() {
 
     let mut system = support::init(file!());
     my_app
-        .register_textures(system.device.clone(), system.queue.clone(), system.renderer.textures())
+        .register_textures(
+            system.device.clone(),
+            system.queue.clone(),
+            system.renderer.textures(),
+        )
         .expect("Failed to register textures");
     system.main_loop(move |_, ui| my_app.show_textures(ui));
 }

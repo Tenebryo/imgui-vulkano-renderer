@@ -99,6 +99,7 @@ impl Renderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         format: Format,
+        gamma: Option<f32>,
     ) -> Result<Renderer, Box<dyn std::error::Error>> {
         let vs = shader::vs::load(device.clone()).unwrap();
         let fs = shader::fs::load(device.clone()).unwrap();
@@ -127,7 +128,12 @@ impl Renderer {
                 InputAssemblyState::new().topology(PrimitiveTopology::TriangleList),
             )
             .viewport_state(ViewportState::viewport_dynamic_scissor_dynamic(1))
-            .fragment_shader(fs.entry_point("main").unwrap(), ())
+            .fragment_shader(
+                fs.entry_point("main").unwrap(),
+                shader::fs::SpecializationConstants {
+                    OUT_GAMMA: gamma.unwrap_or(1.0),
+                },
+            )
             .color_blend_state(ColorBlendState::new(subpass.num_color_attachments()).blend_alpha())
             .render_pass(subpass)
             .build(device.clone())?;

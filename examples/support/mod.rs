@@ -92,7 +92,7 @@ pub fn init(title: &str) -> System {
     let (device, mut queues) = Device::new(
         physical,
         DeviceCreateInfo {
-            enabled_extensions: physical.required_extensions().union(&device_extensions),
+            enabled_extensions: device_extensions,
             queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
             ..Default::default()
         },
@@ -170,8 +170,14 @@ pub fn init(title: &str) -> System {
 
     imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
-    let renderer = Renderer::init(&mut imgui, device.clone(), queue.clone(), format.unwrap())
-        .expect("Failed to initialize renderer");
+    let renderer = Renderer::init(
+        &mut imgui,
+        device.clone(),
+        queue.clone(),
+        format.unwrap(),
+        None,
+    )
+    .expect("Failed to initialize renderer");
 
     System {
         event_loop,

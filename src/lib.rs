@@ -2,30 +2,30 @@ mod shader;
 
 use bytemuck::{Pod, Zeroable};
 use std::convert::TryFrom;
-use vulkano::command_buffer::AutoCommandBufferBuilder;
-use vulkano::descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet};
-use vulkano::pipeline::graphics::color_blend::ColorBlendState;
-use vulkano::pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology};
-use vulkano::pipeline::graphics::vertex_input::BuffersDefinition;
-use vulkano::pipeline::graphics::viewport::{Scissor, Viewport, ViewportState};
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool},
+    command_buffer::allocator::CommandBufferAllocator,
+    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBufferAbstract},
     command_buffer::{PrimaryAutoCommandBuffer, SubpassContents},
+    descriptor_set::allocator::DescriptorSetAllocator,
+    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    device::{Device, Queue},
+    format::Format,
+    image::ImmutableImage,
     image::{view::ImageView, ImageDimensions, ImageViewAbstract},
+    memory::allocator::StandardMemoryAllocator,
+    memory::allocator::{MemoryAllocator, MemoryUsage},
+    pipeline::graphics::color_blend::ColorBlendState,
+    pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology},
+    pipeline::graphics::vertex_input::BuffersDefinition,
+    pipeline::graphics::viewport::{Scissor, Viewport, ViewportState},
+    pipeline::{GraphicsPipeline, Pipeline},
     render_pass::RenderPass,
+    render_pass::Subpass,
+    render_pass::{Framebuffer, FramebufferCreateInfo},
+    sampler::{Sampler, SamplerCreateInfo},
+    sync::GpuFuture,
 };
-
-use vulkano::device::{Device, Queue};
-use vulkano::pipeline::{GraphicsPipeline, Pipeline};
-use vulkano::sync::GpuFuture;
-
-use vulkano::image::ImmutableImage;
-use vulkano::sampler::{Sampler, SamplerCreateInfo};
-// use vulkano::sampler::{Sampler, SamplerAddressMode, Filter, MipmapMode};
-use vulkano::format::Format;
-
-use vulkano::render_pass::Subpass;
-use vulkano::render_pass::{Framebuffer, FramebufferCreateInfo};
 
 use std::fmt;
 use std::sync::Arc;
@@ -72,16 +72,16 @@ impl std::error::Error for RendererError {}
 
 pub type Texture = (Arc<dyn ImageViewAbstract + Send + Sync>, Arc<Sampler>);
 
-pub struct Renderer {
+pub struct Renderer<A: MemoryAllocator = StandardMemoryAllocator> {
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     font_texture: Texture,
     textures: Textures<Texture>,
-    vrt_buffer_pool: CpuBufferPool<Vertex>,
-    idx_buffer_pool: CpuBufferPool<u16>,
+    vrt_buffer_pool: CpuBufferPool<Vertex, A>,
+    idx_buffer_pool: CpuBufferPool<u16, A>,
 }
 
-impl Renderer {
+impl<A: MemoryAllocator> Renderer<A> {
     /// Initialize the renderer object, including vertex buffers, ImGui font textures,
     /// and the Vulkan graphics pipeline.
     ///
@@ -99,8 +99,11 @@ impl Renderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
         format: Format,
+        memory_allocator: Arc<A>,
+        command_buffer_allocator: &impl CommandBufferAllocator,
+
         gamma: Option<f32>,
-    ) -> Result<Renderer, Box<dyn std::error::Error>> {
+    ) -> Result<Renderer<A>, Box<dyn std::error::Error>> {
         let vs = shader::vs::load(device.clone()).unwrap();
         let fs = shader::fs::load(device.clone()).unwrap();
 
@@ -140,18 +143,37 @@ impl Renderer {
 
         let textures = Textures::new();
 
-        let font_texture =
-            Self::upload_font_texture(&mut ctx.fonts(), device.clone(), queue.clone())?;
+        let font_texture = Self::upload_font_texture(
+            &mut ctx.fonts(),
+            device.clone(),
+            queue.clone(),
+            &*memory_allocator,
+            command_buffer_allocator,
+        )?;
 
         ctx.set_renderer_name(Some(format!(
             "imgui-vulkano-renderer {}",
             env!("CARGO_PKG_VERSION")
         )));
 
-        let vrt_buffer_pool =
-            CpuBufferPool::new(device.clone(), BufferUsage::vertex_buffer_transfer_dst());
-        let idx_buffer_pool =
-            CpuBufferPool::new(device.clone(), BufferUsage::index_buffer_transfer_dst());
+        let vrt_buffer_pool = CpuBufferPool::new(
+            Arc::clone(&memory_allocator),
+            BufferUsage {
+                vertex_buffer: true,
+                transfer_dst: true,
+                ..BufferUsage::empty()
+            },
+            vulkano::memory::allocator::MemoryUsage::Upload,
+        );
+        let idx_buffer_pool = CpuBufferPool::new(
+            memory_allocator,
+            BufferUsage {
+                transfer_dst: true,
+                index_buffer: true,
+                ..BufferUsage::empty()
+            },
+            MemoryUsage::Upload,
+        );
 
         Ok(Renderer {
             render_pass,
@@ -176,12 +198,13 @@ impl Renderer {
     /// `target`: the target image to render to
     ///
     /// `draw_data`: the ImGui `DrawData` that each UI frame creates
-    pub fn draw_commands<I>(
+    pub fn draw_commands<I, DSA: DescriptorSetAllocator + 'static>(
         &mut self,
         cmd_buf_builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
         _queue: Arc<Queue>,
         target: Arc<I>,
         draw_data: &imgui::DrawData,
+        descriptor_set_allocator: &DSA,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         I: ImageViewAbstract + Send + Sync + 'static,
@@ -240,11 +263,11 @@ impl Renderer {
         for draw_list in draw_data.draw_lists() {
             let vertex_buffer = self
                 .vrt_buffer_pool
-                .chunk(draw_list.vtx_buffer().iter().map(|&v| Vertex::from(v)))
+                .from_iter(draw_list.vtx_buffer().iter().map(|&v| Vertex::from(v)))
                 .unwrap();
             let index_buffer = self
                 .idx_buffer_pool
-                .chunk(draw_list.idx_buffer().iter().cloned())
+                .from_iter(draw_list.idx_buffer().iter().cloned())
                 .unwrap();
 
             for cmd in draw_list.commands() {
@@ -274,6 +297,7 @@ impl Renderer {
                         {
                             let tex = self.lookup_texture(texture_id)?;
                             let set = PersistentDescriptorSet::new(
+                                descriptor_set_allocator,
                                 layout.clone(),
                                 [WriteDescriptorSet::image_view_sampler(
                                     0,
@@ -342,8 +366,16 @@ impl Renderer {
         ctx: &mut imgui::Context,
         device: Arc<Device>,
         queue: Arc<Queue>,
+        memory_allocator: &A,
+        command_buffer_allocator: &impl CommandBufferAllocator,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.font_texture = Self::upload_font_texture(&mut ctx.fonts(), device, queue)?;
+        self.font_texture = Self::upload_font_texture(
+            &mut ctx.fonts(),
+            device,
+            queue,
+            memory_allocator,
+            command_buffer_allocator,
+        )?;
         Ok(())
     }
 
@@ -356,10 +388,19 @@ impl Renderer {
         fonts: &mut imgui::FontAtlas,
         device: Arc<Device>,
         queue: Arc<Queue>,
+        memory_allocator: &A,
+        command_buffer_allocator: &impl CommandBufferAllocator,
     ) -> Result<Texture, Box<dyn std::error::Error>> {
         let texture = fonts.build_rgba32_texture();
 
-        let (image, fut) = ImmutableImage::from_iter(
+        let mut builder = AutoCommandBufferBuilder::primary(
+            command_buffer_allocator,
+            queue.queue_family_index(),
+            CommandBufferUsage::OneTimeSubmit,
+        )?;
+
+        let image = ImmutableImage::from_iter(
+            memory_allocator,
             texture.data.iter().cloned(),
             ImageDimensions::Dim2d {
                 width: texture.width,
@@ -368,10 +409,15 @@ impl Renderer {
             },
             vulkano::image::MipmapsCount::One,
             Format::R8G8B8A8_SRGB,
-            queue.clone(),
+            &mut builder,
         )?;
 
-        fut.then_signal_fence_and_flush()?.wait(None)?;
+        let command_buffer = builder.build()?;
+
+        command_buffer
+            .execute(queue)?
+            .then_signal_fence_and_flush()?
+            .wait(None)?;
 
         let sampler = Sampler::new(device.clone(), SamplerCreateInfo::simple_repeat_linear())?;
 

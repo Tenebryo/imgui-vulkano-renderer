@@ -2,13 +2,17 @@ use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::time::Duration;
 use std::time::Instant;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
+use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
 use vulkano::command_buffer::ClearColorImageInfo;
-use vulkano::device::physical::PhysicalDevice;
+use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
 use vulkano::device::physical::PhysicalDeviceType;
 use vulkano::device::DeviceCreateInfo;
 use vulkano::device::QueueCreateInfo;
 use vulkano::instance::InstanceCreateInfo;
+use vulkano::memory::allocator::StandardMemoryAllocator;
 use vulkano::swapchain::SwapchainCreateInfo;
+use vulkano::VulkanLibrary;
 
 use vulkano::command_buffer::AutoCommandBufferBuilder;
 use vulkano::device::Queue;
@@ -26,6 +30,8 @@ use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 
+use vulkano_win::VkSurfaceBuild;
+
 use std::sync::Arc;
 
 use imgui_vulkano_renderer::Renderer;
@@ -36,26 +42,35 @@ pub struct System {
     pub event_loop: EventLoop<()>,
     pub device: Arc<Device>,
     pub queue: Arc<Queue>,
-    pub surface: Arc<Surface<Window>>,
-    pub swapchain: Arc<Swapchain<Window>>,
-    pub images: Vec<Arc<SwapchainImage<Window>>>,
+    pub surface: Arc<Surface>,
+    pub swapchain: Arc<Swapchain>,
+    pub images: Vec<Arc<SwapchainImage>>,
     pub imgui: Context,
     pub platform: WinitPlatform,
     pub renderer: Renderer,
     pub font_size: f32,
+
+    pub memory_allocator: Arc<StandardMemoryAllocator>,
+    pub command_buffer_allocator: StandardCommandBufferAllocator,
+    pub descriptor_set_allocator: StandardDescriptorSetAllocator,
 }
 
 pub fn init(title: &str) -> System {
-    let required_extensions = vulkano_win::required_extensions();
-    let instance = Instance::new(InstanceCreateInfo {
-        enabled_extensions: required_extensions,
-        ..Default::default()
-    })
+    let library = VulkanLibrary::new().unwrap();
+
+    let required_extensions = vulkano_win::required_extensions(&library);
+    let instance = Instance::new(
+        library,
+        InstanceCreateInfo {
+            enabled_extensions: required_extensions,
+            ..Default::default()
+        },
+    )
     .unwrap();
 
     let device_extensions = DeviceExtensions {
         khr_swapchain: true,
-        ..DeviceExtensions::none()
+        ..DeviceExtensions::empty()
     };
 
     let title = match title.rfind('/') {
@@ -64,36 +79,46 @@ pub fn init(title: &str) -> System {
     };
 
     let event_loop = EventLoop::new();
-    let surface_builder = WindowBuilder::new().with_title(title.to_owned());
+    let surface = WindowBuilder::new()
+        .with_title(title.to_owned())
+        .build_vk_surface(&event_loop, instance.clone())
+        .expect("Failed to create a window!");
+    let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
 
-    let surface = vulkano_win::VkSurfaceBuild::build_vk_surface(
-        surface_builder,
-        &event_loop,
-        instance.clone(),
-    )
-    .expect("Failed to create a window");
-
-    let (physical, queue_family) = PhysicalDevice::enumerate(&instance)
-        .filter(|&p| p.supported_extensions().is_superset_of(&device_extensions))
+    let (physical, queue_family) = instance
+        .enumerate_physical_devices()
+        .unwrap()
+        .filter(|p| p.supported_extensions().contains(&device_extensions))
         .filter_map(|p| {
-            p.queue_families()
-                .find(|&q| q.supports_graphics() && q.supports_surface(&surface).unwrap_or(false))
-                .map(|q| (p, q))
+            let queue_family = p
+                .queue_family_properties()
+                .iter()
+                .enumerate()
+                .find(|(i, q)| {
+                    q.queue_flags.graphics
+                        && p.surface_support(*i as u32, &surface).unwrap_or(false)
+                })
+                .map(|(i, _q)| i);
+
+            queue_family.map(|i| (p, i))
         })
         .min_by_key(|(p, _)| match p.properties().device_type {
             PhysicalDeviceType::DiscreteGpu => 0,
             PhysicalDeviceType::IntegratedGpu => 1,
             PhysicalDeviceType::VirtualGpu => 2,
             PhysicalDeviceType::Cpu => 3,
-            PhysicalDeviceType::Other => 4,
+            _ => 4,
         })
         .unwrap();
 
     let (device, mut queues) = Device::new(
-        physical,
+        Arc::clone(&physical),
         DeviceCreateInfo {
             enabled_extensions: device_extensions,
-            queue_create_infos: vec![QueueCreateInfo::family(queue_family)],
+            queue_create_infos: vec![QueueCreateInfo {
+                queue_family_index: queue_family as u32,
+                ..Default::default()
+            }],
             ..Default::default()
         },
     )
@@ -117,7 +142,8 @@ pub fn init(title: &str) -> System {
 
         let image_usage = ImageUsage {
             transfer_dst: true,
-            ..ImageUsage::color_attachment()
+            color_attachment: true,
+            ..ImageUsage::empty()
         };
 
         Swapchain::new(
@@ -126,7 +152,7 @@ pub fn init(title: &str) -> System {
             SwapchainCreateInfo {
                 min_image_count: caps.min_image_count,
                 image_format: format,
-                image_extent: surface.window().inner_size().into(),
+                image_extent: window.inner_size().into(),
                 image_usage,
                 composite_alpha: caps.supported_composite_alpha.iter().next().unwrap(),
                 image_color_space: ColorSpace::SrgbNonLinear,
@@ -146,7 +172,7 @@ pub fn init(title: &str) -> System {
     }
 
     let mut platform = WinitPlatform::init(&mut imgui);
-    platform.attach_window(imgui.io_mut(), &surface.window(), HiDpiMode::Rounded);
+    platform.attach_window(imgui.io_mut(), window, HiDpiMode::Rounded);
 
     let hidpi_factor = platform.hidpi_factor();
     let font_size = (13.0 * hidpi_factor) as f32;
@@ -170,11 +196,22 @@ pub fn init(title: &str) -> System {
 
     imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
 
+    let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(Arc::clone(&device)));
+
+    let command_buffer_allocator = StandardCommandBufferAllocator::new(
+        Arc::clone(&device),
+        StandardCommandBufferAllocatorCreateInfo::default(),
+    );
+
+    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(Arc::clone(&device));
+
     let renderer = Renderer::init(
         &mut imgui,
         device.clone(),
         queue.clone(),
         format.unwrap(),
+        Arc::clone(&memory_allocator),
+        &command_buffer_allocator,
         None,
     )
     .expect("Failed to initialize renderer");
@@ -190,6 +227,10 @@ pub fn init(title: &str) -> System {
         platform,
         renderer,
         font_size,
+
+        memory_allocator,
+        command_buffer_allocator,
+        descriptor_set_allocator,
     }
 }
 
@@ -218,7 +259,9 @@ impl System {
         let target_frame_time = Duration::from_millis(1000 / 60);
 
         event_loop.run(move |event, _, control_flow| {
-            platform.handle_event(imgui.io_mut(), &surface.window(), &event);
+            let window = surface.object().unwrap().downcast_ref::<Window>().unwrap();
+
+            platform.handle_event(imgui.io_mut(), &window, &event);
             match event {
                 Event::NewEvents(_) => {
                     // imgui.io_mut().update_delta_time(Instant::now());
@@ -231,9 +274,9 @@ impl System {
                 }
                 Event::MainEventsCleared => {
                     platform
-                        .prepare_frame(imgui.io_mut(), &surface.window())
+                        .prepare_frame(imgui.io_mut(), &window)
                         .expect("Failed to prepare frame");
-                    surface.window().request_redraw();
+                    window.request_redraw();
                 }
                 Event::RedrawEventsCleared => {
                     let t = Instant::now();
@@ -251,7 +294,7 @@ impl System {
                     if recreate_swapchain {
                         let (new_swapchain, new_images) =
                             match swapchain.recreate(SwapchainCreateInfo {
-                                image_extent: surface.window().inner_size().into(),
+                                image_extent: window.inner_size().into(),
                                 ..swapchain.create_info()
                             }) {
                                 Ok(r) => r,
@@ -288,27 +331,30 @@ impl System {
                         recreate_swapchain = true;
                     }
 
-                    platform.prepare_render(&ui, surface.window());
+                    platform.prepare_render(&ui, window);
 
-                    let draw_data = ui.render();
+                    let draw_data = imgui.render();
 
                     let mut cmd_buf_builder = AutoCommandBufferBuilder::primary(
-                        device.clone(),
-                        queue.family(),
+                        &self.command_buffer_allocator,
+                        queue.queue_family_index(),
                         vulkano::command_buffer::CommandBufferUsage::OneTimeSubmit,
                     )
                     .expect("Failed to create command buffer");
 
                     cmd_buf_builder
-                        .clear_color_image(ClearColorImageInfo::image(images[image_num].clone()))
+                        .clear_color_image(ClearColorImageInfo::image(
+                            images[image_num as usize].clone(),
+                        ))
                         .expect("Failed to create image clear command");
 
                     renderer
                         .draw_commands(
                             &mut cmd_buf_builder,
                             queue.clone(),
-                            ImageView::new_default(images[image_num].clone()).unwrap(),
+                            ImageView::new_default(images[image_num as usize].clone()).unwrap(),
                             draw_data,
+                            &self.descriptor_set_allocator,
                         )
                         .expect("Rendering failed");
 
@@ -323,7 +369,13 @@ impl System {
                         .then_execute(queue.clone(), cmd_buf)
                         .unwrap()
                         .then_signal_fence()
-                        .then_swapchain_present(queue.clone(), swapchain.clone(), image_num);
+                        .then_swapchain_present(
+                            queue.clone(),
+                            swapchain::SwapchainPresentInfo::swapchain_image_index(
+                                Arc::clone(&swapchain),
+                                image_num,
+                            ),
+                        );
 
                     match future.flush() {
                         Ok(_) => {
@@ -344,7 +396,7 @@ impl System {
                     ..
                 } => *control_flow = ControlFlow::Exit,
                 event => {
-                    platform.handle_event(imgui.io_mut(), surface.window(), &event);
+                    platform.handle_event(imgui.io_mut(), window, &event);
                 }
             }
         })

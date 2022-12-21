@@ -1,30 +1,29 @@
 use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
-use std::time::Duration;
-use std::time::Instant;
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocator;
-use vulkano::command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo;
-use vulkano::command_buffer::ClearColorImageInfo;
-use vulkano::descriptor_set::allocator::StandardDescriptorSetAllocator;
-use vulkano::device::physical::PhysicalDeviceType;
-use vulkano::device::DeviceCreateInfo;
-use vulkano::device::QueueCreateInfo;
-use vulkano::instance::InstanceCreateInfo;
-use vulkano::memory::allocator::StandardMemoryAllocator;
-use vulkano::swapchain::SwapchainCreateInfo;
-use vulkano::VulkanLibrary;
-
-use vulkano::command_buffer::AutoCommandBufferBuilder;
-use vulkano::device::Queue;
-use vulkano::device::{Device, DeviceExtensions};
-use vulkano::image::view::ImageView;
-use vulkano::image::{ImageUsage, SwapchainImage};
-use vulkano::instance::Instance;
-use vulkano::swapchain;
-use vulkano::swapchain::Surface;
-use vulkano::swapchain::{AcquireError, ColorSpace, Swapchain, SwapchainCreationError};
-use vulkano::sync;
-use vulkano::sync::{FlushError, GpuFuture};
+use std::time::{Duration, Instant};
+use vulkano::{
+    command_buffer::allocator::StandardCommandBufferAllocator,
+    command_buffer::allocator::StandardCommandBufferAllocatorCreateInfo,
+    command_buffer::AutoCommandBufferBuilder,
+    command_buffer::ClearColorImageInfo,
+    device::physical::PhysicalDeviceType,
+    device::DeviceCreateInfo,
+    device::Queue,
+    device::QueueCreateInfo,
+    device::{Device, DeviceExtensions},
+    image::view::ImageView,
+    image::{ImageUsage, SwapchainImage},
+    instance::Instance,
+    instance::InstanceCreateInfo,
+    memory::allocator::StandardMemoryAllocator,
+    swapchain,
+    swapchain::Surface,
+    swapchain::SwapchainCreateInfo,
+    swapchain::{AcquireError, ColorSpace, Swapchain, SwapchainCreationError},
+    sync,
+    sync::{FlushError, GpuFuture},
+    VulkanLibrary,
+};
 
 use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};

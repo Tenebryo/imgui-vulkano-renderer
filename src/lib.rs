@@ -1,15 +1,16 @@
+mod cache;
 mod shader;
+
+use cache::DescriptorSetCache;
 
 use bytemuck::{Pod, Zeroable};
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool},
-    command_buffer::allocator::CommandBufferAllocator,
     command_buffer::{
         allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
         AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBufferAbstract,
     },
     command_buffer::{PrimaryAutoCommandBuffer, SubpassContents},
-    descriptor_set::allocator::DescriptorSetAllocator,
     descriptor_set::{
         allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
     },
@@ -30,7 +31,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use std::{collections::HashMap, convert::TryFrom, fmt, sync::Arc};
+use std::{convert::TryFrom, fmt, sync::Arc};
 
 use imgui::{internal::RawWrapper, DrawCmd, DrawCmdParams, DrawVert, TextureId, Textures};
 
@@ -89,6 +90,8 @@ pub struct Renderer {
     idx_buffer_pool: CpuBufferPool<u16>,
 
     allocators: Allocators,
+
+    descriptor_set_cache: DescriptorSetCache,
 }
 
 impl Renderer {
@@ -200,6 +203,8 @@ impl Renderer {
             vrt_buffer_pool,
             idx_buffer_pool,
             allocators,
+
+            descriptor_set_cache: DescriptorSetCache::default(),
         })
     }
 
@@ -261,6 +266,10 @@ impl Renderer {
 
         let layout = self.pipeline.layout().set_layouts().get(0).unwrap();
 
+        // Creating a new Framebuffer every frame isn't ideal, but according to this thread,
+        // it also isn't really an issue on desktop GPUs:
+        // https://github.com/GameTechDev/IntroductionToVulkan/issues/20
+        // This might be a good target for optimizations in the future though.
         let framebuffer = Framebuffer::new(
             self.render_pass.clone(),
             FramebufferCreateInfo {
@@ -294,8 +303,8 @@ impl Renderer {
                             DrawCmdParams {
                                 clip_rect,
                                 texture_id,
-                                // vtx_offset,
                                 idx_offset,
+                                // vtx_offset,
                                 ..
                             },
                     } => {
@@ -311,15 +320,21 @@ impl Renderer {
                             && clip_rect[2] >= 0.0
                             && clip_rect[3] >= 0.0
                         {
-                            let tex = self.lookup_texture(texture_id)?;
-                            let set = PersistentDescriptorSet::new(
-                                &*self.allocators.descriptor_sets,
-                                layout.clone(),
-                                [WriteDescriptorSet::image_view_sampler(
-                                    0,
-                                    tex.0.clone(),
-                                    tex.1.clone(),
-                                )],
+                            let set = self.descriptor_set_cache.get_or_insert(
+                                texture_id,
+                                |texture_id| {
+                                    let (img, sampler) = Self::lookup_texture(
+                                        &self.textures,
+                                        &self.font_texture,
+                                        texture_id,
+                                    )?
+                                    .clone();
+                                    Ok(PersistentDescriptorSet::new(
+                                        &*self.allocators.descriptor_sets,
+                                        layout.clone(),
+                                        [WriteDescriptorSet::image_view_sampler(0, img, sampler)],
+                                    )?)
+                                },
                             )?;
 
                             cmd_buf_builder
@@ -327,7 +342,7 @@ impl Renderer {
                                     vulkano::pipeline::PipelineBindPoint::Graphics,
                                     self.pipeline.layout().clone(),
                                     0,
-                                    set.clone(),
+                                    set,
                                 )
                                 .set_scissor(
                                     0,
@@ -383,6 +398,7 @@ impl Renderer {
         device: Arc<Device>,
         queue: Arc<Queue>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.descriptor_set_cache.clear_font_texture();
         self.font_texture =
             Self::upload_font_texture(&mut ctx.fonts(), device, queue, &self.allocators)?;
         Ok(())
@@ -390,6 +406,8 @@ impl Renderer {
 
     /// Get the texture library that the renderer uses
     pub fn textures_mut(&mut self) -> &mut Textures<Texture> {
+        // make sure to recreate descriptors if necessary
+        self.descriptor_set_cache.clear();
         &mut self.textures
     }
 
@@ -438,10 +456,14 @@ impl Renderer {
         Ok((ImageView::new_default(image)?, sampler))
     }
 
-    fn lookup_texture(&self, texture_id: TextureId) -> Result<&Texture, RendererError> {
+    fn lookup_texture<'a>(
+        textures: &'a Textures<Texture>,
+        font_texture: &'a Texture,
+        texture_id: TextureId,
+    ) -> Result<&'a Texture, RendererError> {
         if texture_id.id() == usize::MAX {
-            Ok(&self.font_texture)
-        } else if let Some(texture) = self.textures.get(texture_id) {
+            Ok(&font_texture)
+        } else if let Some(texture) = textures.get(texture_id) {
             Ok(texture)
         } else {
             Err(RendererError::BadTexture(texture_id))

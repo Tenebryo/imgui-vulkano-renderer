@@ -10,8 +10,6 @@ Warning: I've only used this renderer in a few examples and a couple projects, s
 
 Supports [imgui-rs] version `0.8.2` and [vulkano] version `0.30.0`. 
 
-Note: Currently `vulkano-win` and `imgui-winit-support`, the [vulkano] and [imgui-rs] `winit` integrations, only support `winit 0.25`, even though the current winit version is `0.27`.
-
 ## Usage
 
 The `Renderer` struct is designed to be a drop-in replacement for the equivalent in  `imgui-glium-renderer` and `imgui-gfx-renderer` (from the [imgui-rs] repository), modulo the API-specific context arguments (the Vulkano `Device` and `Queue` structs). 
@@ -58,7 +56,7 @@ The font altas texture can be reloaded with the following:
 renderer.reupload_font_texture(&mut imgui_ctx, device.clone(), queue.clone());
 ```
 
-Textures used in your UI are looked up in an `imgui::Textures` struct, which can be accessed with `Renderer::textures`.
+Textures used in your UI are looked up in an `imgui::Textures` struct, which can be accessed with `Renderer::textures(_mut)`.
 
 ### Examples
 

@@ -52,7 +52,6 @@ pub struct System {
 
     pub memory_allocator: Arc<StandardMemoryAllocator>,
     pub command_buffer_allocator: StandardCommandBufferAllocator,
-    pub descriptor_set_allocator: StandardDescriptorSetAllocator,
 }
 
 pub fn init(title: &str) -> System {
@@ -203,15 +202,12 @@ pub fn init(title: &str) -> System {
         StandardCommandBufferAllocatorCreateInfo::default(),
     );
 
-    let descriptor_set_allocator = StandardDescriptorSetAllocator::new(Arc::clone(&device));
-
     let renderer = Renderer::init(
         &mut imgui,
         device.clone(),
         queue.clone(),
         format.unwrap(),
-        Arc::clone(&memory_allocator),
-        &command_buffer_allocator,
+        None,
         None,
     )
     .expect("Failed to initialize renderer");
@@ -230,7 +226,6 @@ pub fn init(title: &str) -> System {
 
         memory_allocator,
         command_buffer_allocator,
-        descriptor_set_allocator,
     }
 }
 
@@ -351,10 +346,8 @@ impl System {
                     renderer
                         .draw_commands(
                             &mut cmd_buf_builder,
-                            queue.clone(),
                             ImageView::new_default(images[image_num as usize].clone()).unwrap(),
                             draw_data,
-                            &self.descriptor_set_allocator,
                         )
                         .expect("Rendering failed");
 

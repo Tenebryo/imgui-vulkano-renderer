@@ -1,20 +1,23 @@
 mod shader;
 
 use bytemuck::{Pod, Zeroable};
-use std::convert::TryFrom;
 use vulkano::{
     buffer::{BufferUsage, CpuBufferPool},
     command_buffer::allocator::CommandBufferAllocator,
-    command_buffer::{AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBufferAbstract},
+    command_buffer::{
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        AutoCommandBufferBuilder, CommandBufferUsage, PrimaryCommandBufferAbstract,
+    },
     command_buffer::{PrimaryAutoCommandBuffer, SubpassContents},
     descriptor_set::allocator::DescriptorSetAllocator,
-    descriptor_set::{PersistentDescriptorSet, WriteDescriptorSet},
+    descriptor_set::{
+        allocator::StandardDescriptorSetAllocator, PersistentDescriptorSet, WriteDescriptorSet,
+    },
     device::{Device, Queue},
     format::Format,
     image::ImmutableImage,
     image::{view::ImageView, ImageDimensions, ImageViewAbstract},
-    memory::allocator::StandardMemoryAllocator,
-    memory::allocator::{MemoryAllocator, MemoryUsage},
+    memory::allocator::{MemoryUsage, StandardMemoryAllocator},
     pipeline::graphics::color_blend::ColorBlendState,
     pipeline::graphics::input_assembly::{InputAssemblyState, PrimitiveTopology},
     pipeline::graphics::vertex_input::BuffersDefinition,
@@ -27,8 +30,7 @@ use vulkano::{
     sync::GpuFuture,
 };
 
-use std::fmt;
-use std::sync::Arc;
+use std::{collections::HashMap, convert::TryFrom, fmt, sync::Arc};
 
 use imgui::{internal::RawWrapper, DrawCmd, DrawCmdParams, DrawVert, TextureId, Textures};
 
@@ -72,16 +74,24 @@ impl std::error::Error for RendererError {}
 
 pub type Texture = (Arc<dyn ImageViewAbstract + Send + Sync>, Arc<Sampler>);
 
-pub struct Renderer<A: MemoryAllocator = StandardMemoryAllocator> {
+pub struct Allocators {
+    descriptor_sets: Arc<StandardDescriptorSetAllocator>,
+    memory: Arc<StandardMemoryAllocator>,
+    command_buffers: Arc<StandardCommandBufferAllocator>,
+}
+
+pub struct Renderer {
     render_pass: Arc<RenderPass>,
     pipeline: Arc<GraphicsPipeline>,
     font_texture: Texture,
     textures: Textures<Texture>,
-    vrt_buffer_pool: CpuBufferPool<Vertex, A>,
-    idx_buffer_pool: CpuBufferPool<u16, A>,
+    vrt_buffer_pool: CpuBufferPool<Vertex>,
+    idx_buffer_pool: CpuBufferPool<u16>,
+
+    allocators: Allocators,
 }
 
-impl<A: MemoryAllocator> Renderer<A> {
+impl Renderer {
     /// Initialize the renderer object, including vertex buffers, ImGui font textures,
     /// and the Vulkan graphics pipeline.
     ///
@@ -99,11 +109,19 @@ impl<A: MemoryAllocator> Renderer<A> {
         device: Arc<Device>,
         queue: Arc<Queue>,
         format: Format,
-        memory_allocator: Arc<A>,
-        command_buffer_allocator: &impl CommandBufferAllocator,
 
         gamma: Option<f32>,
-    ) -> Result<Renderer<A>, Box<dyn std::error::Error>> {
+        allocators: Option<Allocators>,
+    ) -> Result<Renderer, Box<dyn std::error::Error>> {
+        let allocators = allocators.unwrap_or_else(|| Allocators {
+            descriptor_sets: Arc::new(StandardDescriptorSetAllocator::new(Arc::clone(&device))),
+            memory: Arc::new(StandardMemoryAllocator::new_default(Arc::clone(&device))),
+            command_buffers: Arc::new(StandardCommandBufferAllocator::new(
+                Arc::clone(&device),
+                StandardCommandBufferAllocatorCreateInfo::default(),
+            )),
+        });
+
         let vs = shader::vs::load(device.clone()).unwrap();
         let fs = shader::fs::load(device.clone()).unwrap();
 
@@ -147,8 +165,7 @@ impl<A: MemoryAllocator> Renderer<A> {
             &mut ctx.fonts(),
             device.clone(),
             queue.clone(),
-            &*memory_allocator,
-            command_buffer_allocator,
+            &allocators,
         )?;
 
         ctx.set_renderer_name(Some(format!(
@@ -157,7 +174,7 @@ impl<A: MemoryAllocator> Renderer<A> {
         )));
 
         let vrt_buffer_pool = CpuBufferPool::new(
-            Arc::clone(&memory_allocator),
+            Arc::clone(&allocators.memory),
             BufferUsage {
                 vertex_buffer: true,
                 transfer_dst: true,
@@ -166,7 +183,7 @@ impl<A: MemoryAllocator> Renderer<A> {
             vulkano::memory::allocator::MemoryUsage::Upload,
         );
         let idx_buffer_pool = CpuBufferPool::new(
-            memory_allocator,
+            Arc::clone(&allocators.memory),
             BufferUsage {
                 transfer_dst: true,
                 index_buffer: true,
@@ -182,6 +199,7 @@ impl<A: MemoryAllocator> Renderer<A> {
             textures,
             vrt_buffer_pool,
             idx_buffer_pool,
+            allocators,
         })
     }
 
@@ -198,13 +216,11 @@ impl<A: MemoryAllocator> Renderer<A> {
     /// `target`: the target image to render to
     ///
     /// `draw_data`: the ImGui `DrawData` that each UI frame creates
-    pub fn draw_commands<I, DSA: DescriptorSetAllocator + 'static>(
+    pub fn draw_commands<I>(
         &mut self,
         cmd_buf_builder: &mut AutoCommandBufferBuilder<PrimaryAutoCommandBuffer>,
-        _queue: Arc<Queue>,
         target: Arc<I>,
         draw_data: &imgui::DrawData,
-        descriptor_set_allocator: &DSA,
     ) -> Result<(), Box<dyn std::error::Error>>
     where
         I: ImageViewAbstract + Send + Sync + 'static,
@@ -297,7 +313,7 @@ impl<A: MemoryAllocator> Renderer<A> {
                         {
                             let tex = self.lookup_texture(texture_id)?;
                             let set = PersistentDescriptorSet::new(
-                                descriptor_set_allocator,
+                                &*self.allocators.descriptor_sets,
                                 layout.clone(),
                                 [WriteDescriptorSet::image_view_sampler(
                                     0,
@@ -366,41 +382,38 @@ impl<A: MemoryAllocator> Renderer<A> {
         ctx: &mut imgui::Context,
         device: Arc<Device>,
         queue: Arc<Queue>,
-        memory_allocator: &A,
-        command_buffer_allocator: &impl CommandBufferAllocator,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        self.font_texture = Self::upload_font_texture(
-            &mut ctx.fonts(),
-            device,
-            queue,
-            memory_allocator,
-            command_buffer_allocator,
-        )?;
+        self.font_texture =
+            Self::upload_font_texture(&mut ctx.fonts(), device, queue, &self.allocators)?;
         Ok(())
     }
 
     /// Get the texture library that the renderer uses
-    pub fn textures(&mut self) -> &mut Textures<Texture> {
+    pub fn textures_mut(&mut self) -> &mut Textures<Texture> {
         &mut self.textures
+    }
+
+    /// Get the texture library that the renderer uses
+    pub fn textures(&self) -> &Textures<Texture> {
+        &self.textures
     }
 
     fn upload_font_texture(
         fonts: &mut imgui::FontAtlas,
         device: Arc<Device>,
         queue: Arc<Queue>,
-        memory_allocator: &A,
-        command_buffer_allocator: &impl CommandBufferAllocator,
+        allocators: &Allocators,
     ) -> Result<Texture, Box<dyn std::error::Error>> {
         let texture = fonts.build_rgba32_texture();
 
         let mut builder = AutoCommandBufferBuilder::primary(
-            command_buffer_allocator,
+            &*allocators.command_buffers,
             queue.queue_family_index(),
             CommandBufferUsage::OneTimeSubmit,
         )?;
 
         let image = ImmutableImage::from_iter(
-            memory_allocator,
+            &*allocators.memory,
             texture.data.iter().cloned(),
             ImageDimensions::Dim2d {
                 width: texture.width,

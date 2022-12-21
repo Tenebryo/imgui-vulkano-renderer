@@ -200,7 +200,7 @@ fn main() {
         .register_textures(
             system.device.clone(),
             system.queue.clone(),
-            system.renderer.textures(),
+            system.renderer.textures_mut(),
             &*system.memory_allocator,
             &system.command_buffer_allocator,
         )

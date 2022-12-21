@@ -76,9 +76,9 @@ impl std::error::Error for RendererError {}
 pub type Texture = (Arc<dyn ImageViewAbstract + Send + Sync>, Arc<Sampler>);
 
 pub struct Allocators {
-    descriptor_sets: Arc<StandardDescriptorSetAllocator>,
-    memory: Arc<StandardMemoryAllocator>,
-    command_buffers: Arc<StandardCommandBufferAllocator>,
+    pub descriptor_sets: Arc<StandardDescriptorSetAllocator>,
+    pub memory: Arc<StandardMemoryAllocator>,
+    pub command_buffers: Arc<StandardCommandBufferAllocator>,
 }
 
 pub struct Renderer {

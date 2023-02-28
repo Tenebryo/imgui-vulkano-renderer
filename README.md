@@ -8,7 +8,7 @@ A [vulkano]-based renderer for [imgui-rs].
 
 Warning: I've only used this renderer in a few examples and a couple projects, so there are likely some issues, but it seems to work with basic ImGui usage.
 
-Supports [imgui-rs] version `0.8.2` and [vulkano] version `0.30.0`. 
+Supports [imgui-rs] version `0.9` and [vulkano] version `0.32`. 
 
 ## Usage
 

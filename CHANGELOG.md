@@ -1,3 +1,10 @@
+# Version 0.9.0
+* Bump `vulkano` version to 0.32
+* Bump `imgui` version to 0.9
+* Bump `winit` to version 0.27 for the examples
+* Cache PersistentDescriptorSets instead of creating new each frame
+* Add support for Gamma correction (necessary for nVidia wayland driver)
+
 # Version 0.7.1
 
 * Bump `vulkano` version to 0.23.0
